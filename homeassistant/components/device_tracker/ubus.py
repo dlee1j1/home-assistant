@@ -127,10 +127,10 @@ class UbusDeviceScanner(DeviceScanner):
 =======
         self.session_id = None  # lazy init, will be fetched on first error
 
-
     def login(self):
         _LOGGER.debug("Fetching the session id..")
-        self.session_id = _get_session_id(self.url, self.username, self.password)
+        self.session_id = _get_session_id(self.url,
+                                          self.username, self.password)
         _LOGGER.debug("Got session: %s", self.session_id)
 
     def update(self, see):
@@ -147,7 +147,8 @@ class UbusDeviceScanner(DeviceScanner):
                 client["ip"] = lease[0]["ip"]
                 client["hostname"] = lease[0]["hostname"]
             else:
-                _LOGGER.warning("Couldn't find lease for %s, using mac as name", client["mac"])
+                _LOGGER.warning("No lease found for %s, using mac as name",
+                                client["mac"])
                 client["hostname"] = mac
                 client["ip"] = "<no lease>"
 
