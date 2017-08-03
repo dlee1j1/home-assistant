@@ -19,7 +19,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 
 _LOGGER = logging.getLogger(__name__)
 
-#REQUIREMENTS = ['git+https://github.com/rytilahti/python-ubus.git#ubus']
+REQUIREMENTS = ['https://github.com/rytilahti/python-ubus/archive/master.zip#ubus==0.0.0']
 
 CONF_LEASE_FILE = "lease_file"
 
