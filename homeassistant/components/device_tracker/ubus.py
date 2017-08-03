@@ -33,7 +33,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
 
 @attr.s
 class Lease:
-    """Represents dnsmasq lease."""
+    """Represents a lease."""
     expires = attr.ib(repr=False)
     mac = attr.ib()
     ip = attr.ib()
@@ -53,6 +53,11 @@ class UbusDeviceScanner(DeviceScanner):
     This class queries a wireless router running OpenWrt or LEDE firmware
     over ubus' JSON-RPC interface.
 
+    Requires the following rpcd ACLs:
+    * iwinfo ["devices", "assoclist"] (to read connected devices)
+    * dhcp ["ipv4leases", "ipv6leases"] (optional for odhcp support)
+    * file ["read"] (required if no lease file configuration option is given)
+
     Adapted (long ago) from Tomato scanner.
     """
 
@@ -62,7 +67,7 @@ class UbusDeviceScanner(DeviceScanner):
         host = config[CONF_HOST]
         self.username = config[CONF_USERNAME]
         self.password = config[CONF_PASSWORD]
-        self.lease_file = config[CONF_LEASEFILE]
+        self.lease_file = config[CONF_LEASE_FILE]
 
         self.ubus = Ubus(host, self.username, self.password)  # type: Ubus
 
@@ -70,6 +75,7 @@ class UbusDeviceScanner(DeviceScanner):
         self.success_init = self.ubus.is_valid_session()
 
     def _get_network_interfaces(self):
+        """Return a list of available network interfaces."""
         from ubus import UbusException
 
         try:
@@ -82,6 +88,7 @@ class UbusDeviceScanner(DeviceScanner):
         return []
 
     def _get_connected_devices(self) -> Dict[str, Dict]:
+        """Return a list of devices connected over wifi."""
         from ubus import UbusException
 
         clients = {}
@@ -97,26 +104,46 @@ class UbusDeviceScanner(DeviceScanner):
 
         return clients
 
+    def _parse_odhcpd_leases(self, data) -> Dict[str, Lease]:
+        """Parse leases out from odhcpd's result structure.."""
+        leases = {}
+        def _format_mac(mac):
+            """from https://stackoverflow.com/a/3258596"""
+            return ':'.join(a+b for a,b in zip(mac[::2], mac[1::2])).upper()
+        for iface, values in data.items():
+            for vlist in values.values():
+                for lease in vlist:
+                    mac = _format_mac(lease['mac'])
+                    leases[mac] = Lease(mac=mac,
+                                        ip=lease["ip"],
+                                        expires=lease["valid"],
+                                        hostname=lease["hostname"],
+                                        client_id=None)
+                    _LOGGER.warning("odhcpd lease: %s", lease)
+
+        return leases
+
     def _get_odhcpd_leases(self, ubus) -> Dict[str, Lease]:
+        """Return a dict of active odhcpd leases."""
         leases = {}
         _LOGGER.warning("odhcpd not supported, please report the lines below")
         lease_methods = ["ipv4leases", "ipv6leases"]
         for lease_method in lease_methods:
             for dev in ubus["dhcp"][lease_method]().values():
-                _LOGGER.warning("RAW lease: %s", dev)
-                for iface, leases in dev.items():
-                    for vlist in leases.values():
-                        for lease in vlist:
-                            _LOGGER.warning("odhcpd lease: %s", lease)
+                _LOGGER.warning("RAW lease output, please report: %s", dev)
+                return
+                _parse_odhcp_leases(dev)
 
         return leases
 
     def _get_lease_files(self, ubus) -> List[str]:
+        """Find dnsmasq lease files."""
         dhcp_config = ubus["uci"]["get"](config="dhcp", type="dnsmasq")
         lease_files = [x["leasefile"] for x in dhcp_config["values"]]
         return lease_files
 
     def _get_dnsmasq_leases(self, ubus, lease_file) -> Dict[str, Lease]:
+        """Return dnsmasq leases from a given file."""
         leases = {}
         currently_leased = ubus["file"]["read"](path=lease_file)["data"]
         for lease_line in currently_leased.splitlines():
@@ -126,7 +153,7 @@ class UbusDeviceScanner(DeviceScanner):
         return leases
 
     def _get_leases(self) -> Dict[str, Lease]:
-        """Return"""
+        """Return a mapping of all active leases."""
         from ubus import UbusException
 
         leases = {}
@@ -151,7 +178,7 @@ class UbusDeviceScanner(DeviceScanner):
 
     def scan_devices(self) -> List[str]:
         """Scan for new devices and return a list with found device IDs."""
-        return self._get_connected_devices().keys()
+        return list(self._get_connected_devices().keys())
 
     def get_device_name(self, mac) -> str:
         """Return the name of the given device or None if we don't know."""
