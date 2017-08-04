@@ -19,7 +19,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 
 _LOGGER = logging.getLogger(__name__)
 
-REQUIREMENTS = ['https://github.com/rytilahti/python-ubus/archive/master.zip#ubus==0.0.0']
+#REQUIREMENTS = ['https://github.com/rytilahti/python-ubus/archive/master.zip#ubus==0.0.0']
 
 CONF_LEASE_FILE = "lease_file"
 
@@ -54,7 +54,7 @@ class UbusDeviceScanner(DeviceScanner):
     over ubus' JSON-RPC interface.
 
     Requires the following rpcd ACLs:
-    * iwinfo ["devices", "assoclist"] (to read connected devices)
+    * hostapd.* ["get_clients"]
     * dhcp ["ipv4leases", "ipv6leases"] (optional for odhcp support)
     * file ["read"] (required if no lease file configuration option is given)
 
@@ -70,22 +70,21 @@ class UbusDeviceScanner(DeviceScanner):
         self.lease_file = config[CONF_LEASE_FILE]
 
         self.ubus = Ubus(host, self.username, self.password)  # type: Ubus
+        with self.ubus:
+            self.success_init = self.ubus.is_valid_session()
 
-        self._wlan_ifaces = self._get_network_interfaces()  # NOTE: this does I/O, is it ok?
-        self.success_init = self.ubus.is_valid_session()
+    def _parse_clients(self, data):
+        clients = {}
+        if "clients" in data:
+            for mac, info in data["clients"].items():
+                clients[mac] = info
+        else:
+            _LOGGER.warning("No 'clients' key in data")
 
-    def _get_network_interfaces(self):
-        """Return a list of available network interfaces."""
-        from ubus import UbusException
+        # use only connected clients
+        clients = {k:v for k,v in clients.items() if v["authorized"]}
 
-        try:
-            with self.ubus as ubus:
-                return ubus["iwinfo"]["devices"]()
-        except UbusException as ex:
-            _LOGGER.error("Unable to read network interfaces from ubus,"
-                          "check your configuration: %s", ex)
-
-        return []
+        return clients
 
     def _get_connected_devices(self) -> Dict[str, Dict]:
         """Return a list of devices connected over wifi."""
@@ -93,10 +92,9 @@ class UbusDeviceScanner(DeviceScanner):
 
         clients = {}
         try:
-            with self.ubus as ubus:
-                for iface in self._wlan_ifaces:
-                    clients_for_iface = ubus["iwinfo"]["assoclist"](device=iface)
-                    clients.update({x["mac"]: x for x in clients_for_iface})
+            for iface in self.ubus:
+                if iface.name.startswith("hostapd"):
+                    clients.update(self._parse_clients(iface["get_clients"]()))
 
             _LOGGER.debug("Total %s connected devices: %s", len(clients), pf(clients))
         except UbusException as ex:
@@ -123,30 +121,34 @@ class UbusDeviceScanner(DeviceScanner):
 
         return leases
 
-    def _get_odhcpd_leases(self, ubus) -> Dict[str, Lease]:
+    def _get_odhcpd_leases(self) -> Dict[str, Lease]:
         """Return a dict of active odhcpd leases."""
         leases = {}
         _LOGGER.warning("odhcpd not supported, please report the lines below")
         lease_methods = ["ipv4leases", "ipv6leases"]
         for lease_method in lease_methods:
-            for dev in ubus["dhcp"][lease_method]().values():
+            for dev in self.ubus["dhcp"][lease_method]().values():
                 _LOGGER.warning("RAW lease output, please report: %s", dev)
                 return
                 _parse_odhcp_leases(dev)
 
         return leases
 
-    def _get_lease_files(self, ubus) -> List[str]:
+    def _get_lease_files(self) -> List[str]:
         """Find dnsmasq lease files."""
-        dhcp_config = ubus["uci"]["get"](config="dhcp", type="dnsmasq")
+        dhcp_config = self.ubus["uci"]["get"](config="dhcp", type="dnsmasq")
         lease_files = [x["leasefile"] for x in dhcp_config["values"]]
         return lease_files
 
-    def _get_dnsmasq_leases(self, ubus, lease_file) -> Dict[str, Lease]:
+    def _get_dnsmasq_leases(self, lease_file) -> Dict[str, Lease]:
         """Return dnsmasq leases from a given file."""
         leases = {}
-        currently_leased = ubus["file"]["read"](path=lease_file)["data"]
-        for lease_line in currently_leased.splitlines():
+        currently_leased = self.ubus["file"]["read"](path=lease_file)
+        if "data" not in currently_leased:
+            _LOGGER.error("Unable to read the leases file %s", lease_file)
+            return leases
+
+        for lease_line in currently_leased["data"].splitlines():
             lease = Lease(*lease_line.split(" "))
             leases[lease.mac.upper()] = lease
 
@@ -158,19 +160,16 @@ class UbusDeviceScanner(DeviceScanner):
 
         leases = {}
         try:
-            with self.ubus as ubus:
-                if "dhcp" in ubus:
-                    leases.update(self._get_odhcpd_leases(ubus))
-                    _LOGGER.warning("Report the lease format as shown above")
+            if "dhcp" in self.ubus:
+                leases.update(self._get_odhcpd_leases())
+            if self.lease_file is None:
+                lease_files = self._get_lease_files()
+            else:
+                lease_files = [self.lease_file]
+            for lease_file in lease_files:
+                leases.update(self._get_dnsmasq_leases(lease_file))
 
-                if self.lease_file is None:
-                    lease_files = self._get_lease_files(ubus)
-                else:
-                    lease_files = [self.lease_file]
-                for lease_file in lease_files:
-                    leases.update(self._get_dnsmasq_leases(ubus, lease_file))
-
-                _LOGGER.debug("Found %s leases: %s", len(leases), pf(leases))
+            _LOGGER.debug("Found %s leases: %s", len(leases), pf(leases))
         except UbusException as ex:
             _LOGGER.error("Unable to read leases from ubus: %s", ex)
 
