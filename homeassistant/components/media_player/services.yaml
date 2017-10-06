@@ -316,3 +316,22 @@ kodi_call_method:
     method:
       description: Name of the Kodi JSONRPC API method to be called.
       example: 'VideoLibrary.GetRecentlyAddedEpisodes'
+
+samygo_send_key:
+  description: 'Send a key to SamyGO device.'
+
+  fields:
+    entity_id:
+      description: Target entity, if not given will be sent to all.
+      example: 'media_player.tv'
+    key:
+      description: Key to send
+      example: 'KEY_HDMI1'
+
+samygo_reboot:
+  description: 'Reboot a SamyGO device.'
+
+  fields:
+    entity_id:
+      description: Target entity, if not given will be sent to all.
+      example: 'media_player.tv'
