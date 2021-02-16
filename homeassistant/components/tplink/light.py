@@ -3,7 +3,7 @@ from datetime import timedelta
 import logging
 
 from kasa import SmartBulb, SmartDeviceException
-
+from datetime import timedelta, datetime
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
@@ -20,8 +20,9 @@ from homeassistant.util.color import (
     color_temperature_mired_to_kelvin as mired_to_kelvin,
 )
 
-from . import CONF_LIGHT, DOMAIN as TPLINK_DOMAIN
-from .common import async_add_entities_retry
+from .const import DOMAIN
+LIGHTS_REMAINING = "lights_remaining"
+
 
 PARALLEL_UPDATES = 0
 SCAN_INTERVAL = timedelta(seconds=5)
@@ -33,24 +34,13 @@ ATTR_DAILY_ENERGY_KWH = "daily_energy_kwh"
 ATTR_MONTHLY_ENERGY_KWH = "monthly_energy_kwh"
 
 
+__platform_async_add_entities__ = None
+
 async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities):
-    """Set up switches."""
-    await async_add_entities_retry(
-        hass, async_add_entities, hass.data[TPLINK_DOMAIN][CONF_LIGHT], add_entity
-    )
-
+    """Grab async_add_entities from here."""
+    global __platform_async_add_entities__
+    __platform_async_add_entities__ = async_add_entities
     return True
-
-
-async def add_entity(device: SmartBulb, async_add_entities):
-    """Check if device is online and add the entity."""
-    # Attempt to get the sysinfo. If it fails, it will raise an
-    # exception that is caught by async_add_entities_retry which
-    # will try again later.
-    await device.update()
-
-    async_add_entities([TPLinkSmartBulb(device)], update_before_add=True)
-
 
 def brightness_to_percentage(byt):
     """Convert brightness from absolute 0..255 to percentage."""
@@ -70,9 +60,33 @@ class TPLinkSmartBulb(LightEntity):
         self.smartbulb = smartbulb
         self._min_mireds = None
         self._max_mireds = None
-        self._is_available = True
         self._supported_features = None
         self._device_state_attributes = {}
+        self._last_updated = datetime.min
+        self._added_to_platform = False
+
+    def add_self_to_platform(self):
+        if (not self._added_to_platform) and (__platform_async_add_entities__ is not None):
+            # First time we have an update for this entity 
+            # so add ourselves to the platform
+            self._added_to_platform = True
+            __platform_async_add_entities__([self])
+
+    def update_device(self,device: SmartBulb):
+        self.smartbulb = device
+        self.update_state_from_device()
+        self._last_updated = datetime.now()
+        self.add_self_to_platform()
+
+        if self.hass is not None:
+            # we could have fired the signal to add ourselves to the platform
+            #  but that might not have fired yet so we check self.hass instad of self._added_to_platform
+            self.async_write_ha_state()
+
+    @property
+    def should_poll(self) -> bool:
+        return False
+
 
     @property
     def unique_id(self):
@@ -98,7 +112,8 @@ class TPLinkSmartBulb(LightEntity):
     @property
     def available(self) -> bool:
         """Return if bulb is available."""
-        return self._is_available
+        time_since_last_updated = datetime.now() - self._last_updated
+        return time_since_last_updated.total_seconds() < 60
 
     @property
     def device_state_attributes(self):
@@ -199,13 +214,15 @@ class TPLinkSmartBulb(LightEntity):
         """Return True if device is on."""
         return self.smartbulb.is_on
 
+    def update_state_from_device(self):
+        self.update_emeter_state()
+        self._supported_features = self.get_light_features()
+
     async def async_update(self):
         """Update the TP-Link Bulb's state."""
         try:
             await self.smartbulb.update()
-            self.update_emeter_state()
-
-            self._supported_features = self.get_light_features()
+            self.update_state_from_device()
             self._is_available = True
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:
