@@ -1,5 +1,6 @@
 """Component to embed TP-Link smart home devices."""
 import asyncio
+from homeassistant import config_entries
 from homeassistant.helpers import discovery
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 from .const import DOMAIN
