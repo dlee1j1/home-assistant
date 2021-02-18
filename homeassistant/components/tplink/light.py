@@ -20,8 +20,7 @@ from homeassistant.util.color import (
     color_temperature_mired_to_kelvin as mired_to_kelvin,
 )
 
-from .const import DOMAIN
-LIGHTS_REMAINING = "lights_remaining"
+from .common import TPLinkCommon
 
 
 PARALLEL_UPDATES = 0
@@ -37,7 +36,7 @@ ATTR_MONTHLY_ENERGY_KWH = "monthly_energy_kwh"
 __platform_async_add_entities__ = None
 
 async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities):
-    """Grab async_add_entities from here."""
+    """Only grab async_add_entities method here. The setup is really done in TPLinkUpdater class"""
     global __platform_async_add_entities__
     __platform_async_add_entities__ = async_add_entities
     return True
@@ -52,68 +51,24 @@ def brightness_from_percentage(percent):
     return round((percent * 255.0) / 100.0)
 
 
-class TPLinkSmartBulb(LightEntity):
+class TPLinkSmartBulb(TPLinkCommon,LightEntity):
     """Representation of a TPLink Smart Bulb."""
 
     def __init__(self, smartbulb: SmartBulb) -> None:
         """Initialize the bulb."""
-        self.smartbulb = smartbulb
+        super.__init__(smartbulb)
         self._min_mireds = None
         self._max_mireds = None
         self._supported_features = None
         self._device_state_attributes = {}
-        self._last_updated = datetime.min
-        self._added_to_platform = False
-
-    def add_self_to_platform(self):
-        if (not self._added_to_platform) and (__platform_async_add_entities__ is not None):
-            # First time we have an update for this entity 
-            # so add ourselves to the platform
-            self._added_to_platform = True
-            __platform_async_add_entities__([self])
-
-    def update_device(self,device: SmartBulb):
-        self.smartbulb = device
-        self.update_state_from_device()
-        self._last_updated = datetime.now()
-        self.add_self_to_platform()
-
-        if self.hass is not None:
-            # we could have fired the signal to add ourselves to the platform
-            #  but that might not have fired yet so we check self.hass instad of self._added_to_platform
-            self.async_write_ha_state()
 
     @property
-    def should_poll(self) -> bool:
-        return False
-
-
-    @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return self.smartbulb.mac
+    def smartbulb(self):
+        return self.device
 
     @property
-    def name(self):
-        """Return the name of the Smart Bulb."""
-        return self.smartbulb.alias
-
-    @property
-    def device_info(self):
-        """Return information about the device."""
-        return {
-            "name": self.smartbulb.alias,
-            "model": self.smartbulb.model,
-            "manufacturer": "TP-Link",
-            "connections": {(dr.CONNECTION_NETWORK_MAC, self.smartbulb.mac)},
-            "sw_version": self.smartbulb.sys_info["sw_ver"],
-        }
-
-    @property
-    def available(self) -> bool:
-        """Return if bulb is available."""
-        time_since_last_updated = datetime.now() - self._last_updated
-        return time_since_last_updated.total_seconds() < 60
+    def _platform_async_add_entities(self):
+        return __platform_async_add_entities__
 
     @property
     def device_state_attributes(self):
@@ -224,6 +179,7 @@ class TPLinkSmartBulb(LightEntity):
             await self.smartbulb.update()
             self.update_state_from_device()
             self._is_available = True
+            self._last_updated = datetime.now
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:
                 _LOGGER.warning(

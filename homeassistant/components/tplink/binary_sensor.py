@@ -1,4 +1,4 @@
-"""Common code for tplink."""
+"""This is the updater for tplink."""
 import asyncio
 from dataclasses import dataclass
 from datetime import timedelta, datetime
@@ -19,6 +19,7 @@ from kasa import (
     SmartStrip,
 )
 
+from .common import TPLinkCommon
 from .light import TPLinkSmartBulb
 from .switch import TPLinkSmartPlugSwitch
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -33,7 +34,7 @@ from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
 _LOGGER = logging.getLogger(__name__)
 
-from .const import DOMAIN, LIGHTS_REMAINING, SWITCHES_REMAINING
+from .const import DOMAIN
 
 
 ATTR_CONFIG = "config"
@@ -81,15 +82,13 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
     """Set up the TP-Link platform."""
     config_data = hass.data[DOMAIN].get(ATTR_CONFIG)
 
-    # find the static config entities 
-    hass.data[DOMAIN][LIGHTS_REMAINING] = []
-    hass.data[DOMAIN][SWITCHES_REMAINING] = []
-
     entities = {}
     broadcast_domain = "255.255.255.255"
+
+    # find the static config entities 
     if config_data is not None:
         entities = add_static_devices(config_data)
-        broadcast_domain = config_data.get(CONF_DISCOVERY_BROADCAST_DOMAIN,"255.255.255.255")
+        broadcast_domain = config_data.get(CONF_DISCOVERY_BROADCAST_DOMAIN,broadcast_domain)
 
     # add the updater
     hass.data[DOMAIN][CONF_DISCOVERY_BROADCAST_DOMAIN] = broadcast_domain
@@ -101,7 +100,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
     return True
 
 
-def add_static_devices(config_data) -> Dict[str,Entity]:
+def add_static_devices(config_data) -> Dict[str,TPLinkCommon]:
     """Get statically defined devices in the config."""
     _LOGGER.debug("Getting static devices")
     entities = {}
@@ -131,14 +130,17 @@ def add_static_devices(config_data) -> Dict[str,Entity]:
 
 
 class TPLinkUpdater(BinarySensorEntity):
-    """Update TPLimk SmartBulb and SmartSwitches entities using the discovery protocol"""
+    """Update TPLimk SmartBulb and SmartSwitches entities using the discovery protocol."""
 
-    def __init__(self,config,broadcast_domain,static_entities:Dict[str,Entity]):
+    def __init__(self,config,broadcast_domain,static_entities:Dict[str,TPLinkCommon]):
         self._config = config
         self._broadcast_domain = broadcast_domain
         self._entities = static_entities
+        self._static_entities = list(static_entities.values())
         self._last_updated = datetime.min
-    
+        self._last_static_check = None
+        self._is_on = False
+
     @property
     def name(self) -> str:
         """Return the name of the binary sensor, if any."""
@@ -165,27 +167,56 @@ class TPLinkUpdater(BinarySensorEntity):
     # TODO: check on static devices and force an update if they haven't done it in a while
     async def async_update(self):
         """Checks when the last update happened. If it's been a while, kicks off a new round. Otherwise, it waits for the next tick"""
-        time_since_last_updated:timedelta = now() - self._last_updated
+        t = now()
+        if (self._last_static_check is None):
+            self._last_static_check = t 
+        time_since_last_updated:timedelta = t - self._last_updated
         if time_since_last_updated.total_seconds() > 1:
             # kick off the discovery cycle
             self.hass.async_create_task(Discover.discover(target=self._broadcast_domain,on_discovered=self.update_from_discovery))
 
+        # check each of the static entries
+        time_since_last_static_check = t - self._last_static_check
+        if time_since_last_static_check.total_seconds() > 5:  # check static devices only every 5 seconds
+            for entity in self._static_entities:
+                entity.check_forced_update(t)
+
+
+    def create_entity_from_discovery(self,device:SmartDevice,is_child=False):
+        """Creates a device entity from discovery. 
+           Note that the entity is not added to platform in this step but rather 
+           in the update step. 
+           We add to the platform later for two reasons: 
+            (1) static entities may never be found; and 
+            (2) we discover devices in the TPLinkUpdater but the light and switch platforms may 
+                not yet have been set up by the time the first discovery call is executed.
+        """  
+        if device.is_plug:
+            entity = TPLinkSmartPlugSwitch(device,is_child=False)
+        elif device.is_dimmer or device.is_bulb or device.is_lightstrip:
+            entity = TPLinkSmartPlugSwitch(device)
+        elif device.is_strip:
+            children = [
+                self.create_from_discovery(plug, is_child=True) for plug in device.children
+            ]
+            _LOGGER.debug("Found strip %s with %s children", device, len(children))
+            entity = SmartPlugSwitch(device, children=children)
+        else:
+            _LOGGER.error("Unknown smart device type: %s", dev.device_type)
+            return
+        self._entities[device.host] = entity
+        return entity
+
     async def update_from_discovery(self,device:SmartDevice):
-        """This is called every time the discovery prototocol gets an update.""" 
+        """This is called every time the discovery prototocol gets an update for a device.""" 
         self._last_updated = now()
 
         entity = self._entities.get(device.host)
 
         # create entity if it's not there yet 
         if (entity is None):
-            if device.is_strip or device.is_plug:
-                entity = TPLinkSmartPlugSwitch(device)
-            elif device.is_dimmer or device.is_bulb or device.is_lightstrip:
-                entity = TPLinkSmartPlugSwitch(device)
-            else:
-                _LOGGER.error("Unknown smart device type: %s", dev.device_type)
-                return
-            self._entities[device.host] = entity
-        
+            entity = self.create_entity_from_discovery(device)
+
         entity.update_device(device)
-        
+        if (device.is_strip):
+            for plug in device.children: plug.update_from_discovery(plug) 

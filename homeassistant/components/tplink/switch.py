@@ -4,6 +4,7 @@ from typing import Union
 
 from kasa import SmartDeviceException, SmartPlug, SmartStrip
 from datetime import datetime, timedelta
+from .common import TPLinkCommon
 from homeassistant.components.switch import (
     ATTR_CURRENT_POWER_W,
     ATTR_TODAY_ENERGY_KWH,
@@ -13,113 +14,41 @@ from homeassistant.const import ATTR_VOLTAGE
 import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.typing import HomeAssistantType
 
-from .const import DOMAIN, SWITCHES_REMAINING
+from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_TOTAL_ENERGY_KWH = "total_energy_kwh"
 ATTR_CURRENT_A = "current_a"
 
-
-async def add_entity_OLD(device: Union[SmartPlug, SmartStrip], async_add_entities):
-    """Check if device is online and add the entity."""
-    # Attempt to get the sysinfo. If it fails, it will raise an
-    # exception that is caught by async_add_entities_retry which
-    # will try again later.
-    await device.update()
-
-    entities = []
-    if device.is_strip:
-        children = [
-            SmartPlugSwitch(plug, should_poll=False) for plug in device.children
-        ]
-        _LOGGER.debug("Found strip %s with %s children", device, len(children))
-        entities.extend(children)
-        strip = SmartPlugSwitch(device, children=children)
-        entities.append(strip)
-    else:
-        entities.append(SmartPlugSwitch(device))
-
-    _LOGGER.debug("Adding switch entities: %s", entities)
-    async_add_entities(entities, update_before_add=True)
-
 __platform_async_add_entities__ = None
 
 async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities):
-    """Grab async_add_entities from here."""
+    """Only grab async_add_entities method here. The setup is really done in TPLinkUpdater class"""
     global __platform_async_add_entities__
     __platform_async_add_entities__ = async_add_entities
-
 
     return True
 
 # TODO: Deal with Children
-class TPLinkSmartPlugSwitch(SwitchEntity):
+class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
     """Representation of a TPLink Smart Plug switch."""
 
-    def __init__(self, smartplug: SmartPlug, children=None, should_poll=True):
+    def __init__(self, smartplug: SmartPlug, children=None, is_child=False):
         """Initialize the switch."""
-        self.smartplug = smartplug
+        super().__init__(smartplug)
         self._is_available = False
         self._emeter_params = {}
-        self._should_poll = should_poll
+        self._should_poll = not is_child
         self._children = children or []
         self._is_on = False
-        self._last_updated = datetime.min
-        self._added_to_platform = False
-
-    def add_self_to_platform(self):
-        if (not self._added_to_platform) and (__platform_async_add_entities__ is not None):
-            # First time we have an update for this entity 
-            # so add ourselves to the platform
-            self._added_to_platform = True
-            __platform_async_add_entities__([self])
-
-    def update_device(self,device: SmartPlug):
-        self.smartplug = device
-        self._last_updated = datetime.now()
-        self.update_self_from_device()
-        self.add_self_to_platform()
-
-        if self.hass is not None:
-            # we could have fired the signal to add ourselves to the platform
-            #  but that might not have fired yet so we check self.hass instad of self._added_to_platform
-            self.async_write_ha_state()
 
     @property
-    def should_poll(self) -> bool:
-        """Return True if entity has to be polled for state.
-
-        Only parent devices need to be polled for smart strips.
-        """
-        return False
-
+    def smartplug(self):
+        return self.device
 
     @property
-    def unique_id(self):
-        """Return a unique ID."""
-        return self.smartplug.device_id
-
-    @property
-    def name(self):
-        """Return the name of the Smart Plug."""
-        return self.smartplug.alias
-
-    @property
-    def device_info(self):
-        """Return information about the device."""
-        return {
-            "name": self.smartplug.alias,
-            "model": self.smartplug.model,
-            "manufacturer": "TP-Link",
-            "connections": {(dr.CONNECTION_NETWORK_MAC, self.smartplug.mac)},
-            "sw_version": self.smartplug.sys_info["sw_ver"],
-        }
-
-    @property
-    def available(self) -> bool:
-        """Return if switch is available."""
-        time_since_last_updated = datetime.now() - self._last_updated
-        return time_since_last_updated.total_seconds() < 60
+    def _platform_async_add_entities(self):
+        return __platform_async_add_entities__
 
     @property
     def is_on(self):
@@ -143,7 +72,7 @@ class TPLinkSmartPlugSwitch(SwitchEntity):
         """Return the state attributes of the device."""
         return self._emeter_params
     
-    def update_self_from_device(self):
+    def update_state_from_device(self):
         self._is_on = self.smartplug.is_on
 
         if self.smartplug.has_emeter:
@@ -166,7 +95,6 @@ class TPLinkSmartPlugSwitch(SwitchEntity):
             if consumption_today is not None:
                 self._emeter_params[ATTR_TODAY_ENERGY_KWH] = consumption_today
 
-        # XXX TODO: deal with children!
 
     async def async_update(self):
         """Update the TP-Link switch's state."""
@@ -176,6 +104,7 @@ class TPLinkSmartPlugSwitch(SwitchEntity):
                 await self.smartplug.update()
             update_self_from_device()
             self._is_available = True
+            self._last_updated = datetime.now
 
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:
@@ -185,7 +114,6 @@ class TPLinkSmartPlugSwitch(SwitchEntity):
             self._is_available = False
 
             return
-
 
         if self._children:
             _LOGGER.debug(
