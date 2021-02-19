@@ -34,8 +34,10 @@ from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
 _LOGGER = logging.getLogger(__name__)
 
-from .const import DOMAIN
-
+from .const import (
+    DOMAIN, MIN_TIME_BETWEEN_UPDATES, 
+    STARTUP_COOLDOWN_TIME, MIN_TIME_BETWEEN_DISCOVERS
+)
 
 ATTR_CONFIG = "config"
 CONF_DIMMER = "dimmer"
@@ -92,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_ent
 
     # add the updater
     hass.data[DOMAIN][CONF_DISCOVERY_BROADCAST_DOMAIN] = broadcast_domain
-    updater = TPLinkUpdater(config_data,broadcast_domain,entities)
+    updater = TPLinkUpdater(broadcast_domain,entities)
     async_add_entities([updater])
     hass.data[DOMAIN][CONF_HOST] = entities
     hass.data[DOMAIN]["updater"] = updater
@@ -132,14 +134,14 @@ def add_static_devices(config_data) -> Dict[str,TPLinkCommon]:
 class TPLinkUpdater(BinarySensorEntity):
     """Update TPLimk SmartBulb and SmartSwitches entities using the discovery protocol."""
 
-    def __init__(self,config,broadcast_domain,static_entities:Dict[str,TPLinkCommon]):
-        self._config = config
+    def __init__(self,broadcast_domain,static_entities:Dict[str,TPLinkCommon]):
         self._broadcast_domain = broadcast_domain
         self._entities = static_entities
         self._static_entities = list(static_entities.values())
         self._last_updated = datetime.min
         self._last_static_check = None
         self._is_on = False
+        self._start_time = now()
 
     @property
     def name(self) -> str:
@@ -168,18 +170,24 @@ class TPLinkUpdater(BinarySensorEntity):
     async def async_update(self):
         """Checks when the last update happened. If it's been a while, kicks off a new round. Otherwise, it waits for the next tick"""
         t = now()
+        if (t - self._start_time < STARTUP_COOLDOWN_TIME):
+            # wait a little bit so start up can finish, otherwise, HA will think it is not yet done 
+            # and take forever to let everyone know that it is done 
+            return
+
         if (self._last_static_check is None):
             self._last_static_check = t 
-        time_since_last_updated:timedelta = t - self._last_updated
-        if time_since_last_updated.total_seconds() > 1:
+
+        if t - self._last_updated > MIN_TIME_BETWEEN_DISCOVERS:
             # kick off the discovery cycle
             self.hass.async_create_task(Discover.discover(target=self._broadcast_domain,on_discovered=self.update_from_discovery))
 
         # check each of the static entries
-        time_since_last_static_check = t - self._last_static_check
-        if time_since_last_static_check.total_seconds() > 5:  # check static devices only every 5 seconds
+        if t - self._last_static_check > MIN_TIME_BETWEEN_UPDATES: 
+            # check static devices only every 5 seconds
             for entity in self._static_entities:
                 entity.check_forced_update(t)
+            self._last_static_check = t
 
 
     def create_entity_from_discovery(self,device:SmartDevice,is_child=False):

@@ -2,6 +2,7 @@ from abc import ABC,abstractclassmethod,abstractproperty
 """Common code for TPLink"""
 
 from homeassistant.helpers.entity import Entity
+from .const import MIN_TIME_BETWEEN_UPDATES
 from datetime import timedelta, datetime
 import homeassistant.helpers.device_registry as dr
 from kasa import (
@@ -62,7 +63,7 @@ class TPLinkCommon(Entity):
             If it's more than 5-seconds, we force an update through a direct TCP call in case UDP packets are getting lost.
         """
         time_since_last_update = now - self._last_updated
-        if (time_since_last_update.total_seconds() > 5):
+        if (time_since_last_update > MIN_TIME_BETWEEN_UPDATES):
             self.async_schedule_update_ha_state(force_refresh=True)
 
     @property

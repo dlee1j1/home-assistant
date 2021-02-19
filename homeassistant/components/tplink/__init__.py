@@ -28,7 +28,7 @@ async def async_setup(hass: HomeAssistantType, config):
 
 async def async_setup_entry(hass,config):
     """the only job for this is to forward the set up to the other platforms""" 
-    hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"light"))
+#    hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"light"))
     hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"switch"))
     hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"binary_sensor"))
 
