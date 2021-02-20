@@ -132,7 +132,7 @@ def add_static_devices(config_data) -> Dict[str,TPLinkCommon]:
 
 
 class TPLinkUpdater(BinarySensorEntity):
-    """Update TPLimk SmartBulb and SmartSwitches entities using the discovery protocol."""
+    """Update TPLimk SmartBulb and SmartSwitches entities using the Kasa discovery protocol."""
 
     def __init__(self,broadcast_domain,static_entities:Dict[str,TPLinkCommon]):
         self._broadcast_domain = broadcast_domain
@@ -140,7 +140,7 @@ class TPLinkUpdater(BinarySensorEntity):
         self._static_entities = list(static_entities.values())
         self._last_updated = datetime.min
         self._last_static_check = None
-        self._is_on = False
+        self._first_discovery_done = False
         self._start_time = now()
 
     @property
@@ -166,23 +166,29 @@ class TPLinkUpdater(BinarySensorEntity):
         avail = self._last_updated != datetime.min
         return avail
 
-    # TODO: check on static devices and force an update if they haven't done it in a while
+    def schedule_discovery(self):
+        self.hass.async_create_task(Discover.discover(target=self._broadcast_domain,on_discovered=self.update_from_discovery))
+
     async def async_update(self):
         """Checks when the last update happened. If it's been a while, kicks off a new round. Otherwise, it waits for the next tick"""
         t = now()
-        if (t - self._start_time < STARTUP_COOLDOWN_TIME):
-            # wait a little bit so start up can finish, otherwise, HA will think it is not yet done 
-            # and take forever to let everyone know that it is done 
+        if t - self._start_time < STARTUP_COOLDOWN_TIME:
+            # Wait a little bit before we aggressively update the switches so start up can finish. Otherwise, 
+            # HomeAssistant will think it is not yet done bootstrapping
+            if not self._first_discovery_done:
+                # do the first time discovery
+                self.schedule_discovery()
+                self._first_discovery_done = True
             return
 
+        # kick off the discovery cycle but we wait for the devices to have gone silent for a while
+        if t - self._last_updated > MIN_TIME_BETWEEN_DISCOVERS:
+            self.schedule_discovery()
+
+        # check each of the static entries, if they haven't updated through UDP, force a TCP update
         if (self._last_static_check is None):
             self._last_static_check = t 
 
-        if t - self._last_updated > MIN_TIME_BETWEEN_DISCOVERS:
-            # kick off the discovery cycle
-            self.hass.async_create_task(Discover.discover(target=self._broadcast_domain,on_discovered=self.update_from_discovery))
-
-        # check each of the static entries
         if t - self._last_static_check > MIN_TIME_BETWEEN_UPDATES: 
             # check static devices only every 5 seconds
             for entity in self._static_entities:
