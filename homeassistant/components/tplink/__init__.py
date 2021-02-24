@@ -1,17 +1,18 @@
 """Component to embed TP-Link smart home devices."""
-import asyncio
-from homeassistant import config_entries
-from homeassistant.helpers import discovery
-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
-from .const import DOMAIN
 import logging
-_LOGGER = logging.getLogger(__name__)
 
+from homeassistant import config_entries
+from homeassistant.helpers.typing import HomeAssistantType
+
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 ATTR_CONFIG = "config"
 
 
 async def async_setup(hass: HomeAssistantType, config):
+    """Set up this module."""
     conf = config.get(DOMAIN)
 
     hass.data[DOMAIN] = {}
@@ -26,16 +27,24 @@ async def async_setup(hass: HomeAssistantType, config):
 
     return True
 
-async def async_setup_entry(hass,config):
-    """the only job for this is to forward the set up to the other platforms""" 
-#    hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"light"))
-    hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"switch"))
-    hass.async_create_task(hass.config_entries.async_forward_entry_setup(config,"binary_sensor"))
+
+async def async_setup_entry(hass, config):
+    """Forward the set up to the other platforms."""
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(config, "light")
+    )
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(config, "switch")
+    )
+    hass.async_create_task(
+        hass.config_entries.async_forward_entry_setup(config, "binary_sensor")
+    )
 
     return True
 
 
 async def async_unload_entry(hass, entry):
+    """Forward the unload entry."""
     forward_unload = hass.config_entries.async_forward_entry_unload
     remove_lights = remove_switches = remove_updater = False
 
