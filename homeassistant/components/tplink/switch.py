@@ -1,20 +1,20 @@
 """Support for TPLink HS100/HS110/HS200 smart switch."""
+from datetime import datetime
 import logging
 from typing import Union
 
 from kasa import SmartDeviceException, SmartPlug, SmartStrip
-from datetime import datetime, timedelta
-from .common import TPLinkCommon
+
 from homeassistant.components.switch import (
     ATTR_CURRENT_POWER_W,
     ATTR_TODAY_ENERGY_KWH,
     SwitchEntity,
 )
 from homeassistant.const import ATTR_VOLTAGE
-import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.typing import HomeAssistantType
 
-from .const import DOMAIN
+from .common import TPLinkCommon
+
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_TOTAL_ENERGY_KWH = "total_energy_kwh"
@@ -22,18 +22,21 @@ ATTR_CURRENT_A = "current_a"
 
 __platform_async_add_entities__ = None
 
+
 async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities):
-    """Only grab async_add_entities method here. The setup is really done in TPLinkUpdater class"""
-    global __platform_async_add_entities__
+    """Retrieve async_add_entities method here. The setup is done in TPLinkUpdater class."""
+    global __platform_async_add_entities__  # pylint: disable=global-statement
     __platform_async_add_entities__ = async_add_entities
 
     return True
 
-# TODO: Deal with Children
+
 class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
     """Representation of a TPLink Smart Plug switch."""
 
-    def __init__(self, smartplug: SmartPlug, children=None, is_child=False):
+    def __init__(
+        self, smartplug: Union[SmartPlug, SmartStrip], children=None, is_child=False
+    ):
         """Initialize the switch."""
         super().__init__(smartplug)
         self._is_available = False
@@ -44,6 +47,7 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
 
     @property
     def smartplug(self):
+        """Wrap smartplug property for backward compatibility."""
         return self.device
 
     @property
@@ -71,8 +75,9 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
     def device_state_attributes(self):
         """Return the state attributes of the device."""
         return self._emeter_params
-    
+
     def update_state_from_device(self):
+        """Update internal state from the device object the entity points to."""
         self._is_on = self.smartplug.is_on
 
         if self.smartplug.has_emeter:
@@ -95,14 +100,13 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
             if consumption_today is not None:
                 self._emeter_params[ATTR_TODAY_ENERGY_KWH] = consumption_today
 
-
     async def async_update(self):
         """Update the TP-Link switch's state."""
         try:
             if self.should_poll:
                 _LOGGER.debug("Polling device: %s", self.name)
                 await self.smartplug.update()
-            update_self_from_device()
+            self.update_state_from_device()
             self._is_available = True
             self._last_updated = datetime.now
 
