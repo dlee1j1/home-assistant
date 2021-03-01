@@ -1,6 +1,6 @@
 """Entity class that represents Z-Wave node."""
+# pylint: disable=import-outside-toplevel
 from itertools import count
-import logging
 
 from homeassistant.const import ATTR_BATTERY_LEVEL, ATTR_ENTITY_ID, ATTR_WAKEUP
 from homeassistant.core import callback
@@ -21,8 +21,6 @@ from .const import (
     EVENT_SCENE_ACTIVATED,
 )
 from .util import is_node_parsed, node_device_id_and_name, node_name
-
-_LOGGER = logging.getLogger(__name__)
 
 ATTR_QUERY_STAGE = "query_stage"
 ATTR_AWAKE = "is_awake"
@@ -87,7 +85,7 @@ class ZWaveBaseEntity(Entity):
         @callback
         def do_update():
             """Really update."""
-            self.hass.async_add_job(self.async_update_ha_state)
+            self.async_write_ha_state()
             self._update_scheduled = False
 
         self._update_scheduled = True
@@ -97,7 +95,7 @@ class ZWaveBaseEntity(Entity):
         """Remove this entity and add it back."""
 
         async def _async_remove_and_add():
-            await self.async_remove()
+            await self.async_remove(force_remove=True)
             self.entity_id = None
             await self.platform.async_add_entities([self])
 
@@ -106,7 +104,7 @@ class ZWaveBaseEntity(Entity):
 
     async def node_removed(self):
         """Call when a node is removed from the Z-Wave network."""
-        await self.async_remove()
+        await self.async_remove(force_remove=True)
 
         registry = await async_get_registry(self.hass)
         if self.entity_id not in registry.entities:
@@ -248,14 +246,12 @@ class ZWaveNodeEntity(ZWaveBaseEntity):
         # Set the name in the devices. If they're customised
         # the customisation will not be stored as name and will stick.
         dev_reg = await get_dev_reg(self.hass)
-        device = dev_reg.async_get_device(identifiers={identifier}, connections=set())
+        device = dev_reg.async_get_device(identifiers={identifier})
         dev_reg.async_update_device(device.id, name=self._name)
         # update sub-devices too
         for i in count(2):
             identifier, new_name = node_device_id_and_name(self.node, i)
-            device = dev_reg.async_get_device(
-                identifiers={identifier}, connections=set()
-            )
+            device = dev_reg.async_get_device(identifiers={identifier})
             if not device:
                 break
             dev_reg.async_update_device(device.id, name=new_name)
@@ -273,7 +269,7 @@ class ZWaveNodeEntity(ZWaveBaseEntity):
                 ent_reg.async_update_entity(self.entity_id, new_entity_id=new_entity_id)
                 return
         # else for the above two ifs, update if not using update_entity
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
     def network_node_event(self, node, value):
         """Handle a node activated event on the network."""

@@ -11,12 +11,11 @@ from homeassistant.components.notify import (
     PLATFORM_SCHEMA,
     BaseNotificationService,
 )
-from homeassistant.const import CONF_API_KEY
+from homeassistant.const import CONF_API_KEY, CONF_DEVICE_ID
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_DEVICE_ID = "device_id"
 CONF_DEVICE_IDS = "device_ids"
 CONF_DEVICE_NAMES = "device_names"
 
@@ -61,7 +60,6 @@ class JoinNotificationService(BaseNotificationService):
 
     def send_message(self, message="", **kwargs):
         """Send a message to a user."""
-
         title = kwargs.get(ATTR_TITLE, ATTR_TITLE_DEFAULT)
         data = kwargs.get(ATTR_DATA) or {}
         send_notification(
@@ -79,5 +77,6 @@ class JoinNotificationService(BaseNotificationService):
             tts=data.get("tts"),
             tts_language=data.get("tts_language"),
             vibration=data.get("vibration"),
+            actions=data.get("actions"),
             api_key=self._api_key,
         )

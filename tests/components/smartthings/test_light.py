@@ -18,9 +18,12 @@ from homeassistant.components.light import (
     SUPPORT_COLOR_TEMP,
     SUPPORT_TRANSITION,
 )
-from homeassistant.components.smartthings import light
 from homeassistant.components.smartthings.const import DOMAIN, SIGNAL_SMARTTHINGS_UPDATE
-from homeassistant.const import ATTR_ENTITY_ID, ATTR_SUPPORTED_FEATURES
+from homeassistant.const import (
+    ATTR_ENTITY_ID,
+    ATTR_SUPPORTED_FEATURES,
+    STATE_UNAVAILABLE,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .conftest import setup_platform
@@ -66,11 +69,6 @@ def light_devices_fixture(device_factory):
             },
         ),
     ]
-
-
-async def test_async_setup_platform():
-    """Test setup platform does nothing (it uses config entries)."""
-    await light.async_setup_platform(None, None, None)
 
 
 async def test_entity_state(hass, light_devices):
@@ -121,7 +119,7 @@ async def test_entity_and_device_attributes(hass, device_factory):
     assert entry
     assert entry.unique_id == device.device_id
 
-    entry = device_registry.async_get_device({(DOMAIN, device.device_id)}, [])
+    entry = device_registry.async_get_device({(DOMAIN, device.device_id)})
     assert entry
     assert entry.name == device.label
     assert entry.model == device.device_type_name
@@ -310,4 +308,4 @@ async def test_unload_config_entry(hass, device_factory):
     # Act
     await hass.config_entries.async_forward_entry_unload(config_entry, "light")
     # Assert
-    assert not hass.states.get("light.color_dimmer_2")
+    assert hass.states.get("light.color_dimmer_2").state == STATE_UNAVAILABLE

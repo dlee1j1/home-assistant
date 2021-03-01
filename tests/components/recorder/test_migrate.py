@@ -1,9 +1,10 @@
 """The tests for the Recorder component."""
 # pylint: disable=protected-access
-from unittest.mock import call, patch
+from unittest.mock import Mock, PropertyMock, call, patch
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import InternalError, OperationalError, ProgrammingError
 from sqlalchemy.pool import StaticPool
 
 from homeassistant.bootstrap import async_setup_component
@@ -26,7 +27,10 @@ async def test_schema_update_calls(hass):
     """Test that schema migrations occur in correct order."""
     with patch(
         "homeassistant.components.recorder.create_engine", new=create_engine_test
-    ), patch("homeassistant.components.recorder.migration._apply_update") as update:
+    ), patch(
+        "homeassistant.components.recorder.migration._apply_update",
+        wraps=migration._apply_update,
+    ) as update:
         await async_setup_component(
             hass, "recorder", {"recorder": {"db_url": "sqlite://"}}
         )
@@ -76,3 +80,30 @@ def test_forgiving_add_index():
     engine = create_engine("sqlite://", poolclass=StaticPool)
     models.Base.metadata.create_all(engine)
     migration._create_index(engine, "states", "ix_states_context_id")
+
+
+@pytest.mark.parametrize(
+    "exception_type", [OperationalError, ProgrammingError, InternalError]
+)
+def test_forgiving_add_index_with_other_db_types(caplog, exception_type):
+    """Test that add index will continue if index exists on mysql and postgres."""
+    mocked_index = Mock()
+    type(mocked_index).name = "ix_states_context_id"
+    mocked_index.create = Mock(
+        side_effect=exception_type(
+            "CREATE INDEX ix_states_old_state_id ON states (old_state_id);",
+            [],
+            'relation "ix_states_old_state_id" already exists',
+        )
+    )
+
+    mocked_table = Mock()
+    type(mocked_table).indexes = PropertyMock(return_value=[mocked_index])
+
+    with patch(
+        "homeassistant.components.recorder.migration.Table", return_value=mocked_table
+    ):
+        migration._create_index(Mock(), "states", "ix_states_context_id")
+
+    assert "already exists on states" in caplog.text
+    assert "continuing" in caplog.text

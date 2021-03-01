@@ -1,7 +1,7 @@
 """Configuration for HEOS tests."""
 from typing import Dict, Sequence
+from unittest.mock import Mock, patch as patch
 
-from asynctest.mock import Mock, patch as patch
 from pyheos import Dispatcher, Heos, HeosPlayer, HeosSource, InputSource, const
 import pytest
 

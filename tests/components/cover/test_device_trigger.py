@@ -22,6 +22,7 @@ from tests.common import (
     mock_device_registry,
     mock_registry,
 )
+from tests.components.blueprint.conftest import stub_blueprint_populate  # noqa
 
 
 @pytest.fixture
@@ -38,7 +39,7 @@ def entity_reg(hass):
 
 @pytest.fixture
 def calls(hass):
-    """Track calls to a mock serivce."""
+    """Track calls to a mock service."""
     return async_mock_service(hass, "test", "automation")
 
 
@@ -464,6 +465,7 @@ async def test_if_fires_on_position(hass, calls):
     platform.init()
     ent = platform.ENTITIES[1]
     assert await async_setup_component(hass, DOMAIN, {DOMAIN: {CONF_PLATFORM: "test"}})
+    await hass.async_block_till_done()
 
     assert await async_setup_component(
         hass,
@@ -540,8 +542,12 @@ async def test_if_fires_on_position(hass, calls):
             ]
         },
     )
+    hass.states.async_set(ent.entity_id, STATE_OPEN, attributes={"current_position": 1})
     hass.states.async_set(
-        ent.entity_id, STATE_CLOSED, attributes={"current_position": 50}
+        ent.entity_id, STATE_CLOSED, attributes={"current_position": 95}
+    )
+    hass.states.async_set(
+        ent.entity_id, STATE_OPEN, attributes={"current_position": 50}
     )
     await hass.async_block_till_done()
     assert len(calls) == 3
@@ -549,8 +555,8 @@ async def test_if_fires_on_position(hass, calls):
         [calls[0].data["some"], calls[1].data["some"], calls[2].data["some"]]
     ) == sorted(
         [
-            "is_pos_gt_45_lt_90 - device - cover.set_position_cover - open - closed - None",
-            "is_pos_lt_90 - device - cover.set_position_cover - open - closed - None",
+            "is_pos_gt_45_lt_90 - device - cover.set_position_cover - closed - open - None",
+            "is_pos_lt_90 - device - cover.set_position_cover - closed - open - None",
             "is_pos_gt_45 - device - cover.set_position_cover - open - closed - None",
         ]
     )
@@ -586,6 +592,7 @@ async def test_if_fires_on_tilt_position(hass, calls):
     platform.init()
     ent = platform.ENTITIES[1]
     assert await async_setup_component(hass, DOMAIN, {DOMAIN: {CONF_PLATFORM: "test"}})
+    await hass.async_block_till_done()
 
     assert await async_setup_component(
         hass,
@@ -663,7 +670,13 @@ async def test_if_fires_on_tilt_position(hass, calls):
         },
     )
     hass.states.async_set(
-        ent.entity_id, STATE_CLOSED, attributes={"current_tilt_position": 50}
+        ent.entity_id, STATE_OPEN, attributes={"current_tilt_position": 1}
+    )
+    hass.states.async_set(
+        ent.entity_id, STATE_CLOSED, attributes={"current_tilt_position": 95}
+    )
+    hass.states.async_set(
+        ent.entity_id, STATE_OPEN, attributes={"current_tilt_position": 50}
     )
     await hass.async_block_till_done()
     assert len(calls) == 3
@@ -671,8 +684,8 @@ async def test_if_fires_on_tilt_position(hass, calls):
         [calls[0].data["some"], calls[1].data["some"], calls[2].data["some"]]
     ) == sorted(
         [
-            "is_pos_gt_45_lt_90 - device - cover.set_position_cover - open - closed - None",
-            "is_pos_lt_90 - device - cover.set_position_cover - open - closed - None",
+            "is_pos_gt_45_lt_90 - device - cover.set_position_cover - closed - open - None",
+            "is_pos_lt_90 - device - cover.set_position_cover - closed - open - None",
             "is_pos_gt_45 - device - cover.set_position_cover - open - closed - None",
         ]
     )

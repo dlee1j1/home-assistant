@@ -53,6 +53,9 @@ async def test_update_entity(hass, hass_client):
     hass.states.async_set("hello.world", "state", {"a": "b"})
     with patch("homeassistant.components.config._read", mock_read), patch(
         "homeassistant.components.config._write", mock_write
+    ), patch(
+        "homeassistant.config.async_hass_config_yaml",
+        return_value={},
     ):
         resp = await client.post(
             "/api/config/customize/config/hello.world",
@@ -60,6 +63,7 @@ async def test_update_entity(hass, hass_client):
                 {"name": "Beer", "entities": ["light.top", "light.bottom"]}
             ),
         )
+        await hass.async_block_till_done()
 
     assert resp.status == 200
     result = await resp.json()

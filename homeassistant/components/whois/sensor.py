@@ -6,13 +6,11 @@ import voluptuous as vol
 import whois
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_DOMAIN, CONF_NAME, TIME_DAYS
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
-
-CONF_DOMAIN = "domain"
 
 DEFAULT_NAME = "Whois"
 
@@ -75,7 +73,7 @@ class WhoisSensor(Entity):
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement to present the value in."""
-        return "days"
+        return TIME_DAYS
 
     @property
     def state(self):

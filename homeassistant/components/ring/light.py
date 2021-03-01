@@ -2,7 +2,9 @@
 from datetime import timedelta
 import logging
 
-from homeassistant.components.light import Light
+import requests
+
+from homeassistant.components.light import LightEntity
 from homeassistant.core import callback
 import homeassistant.util.dt as dt_util
 
@@ -36,7 +38,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities(lights)
 
 
-class RingLight(RingEntityMixin, Light):
+class RingLight(RingEntityMixin, LightEntity):
     """Creates a switch to turn the ring cameras light on and off."""
 
     def __init__(self, config_entry_id, device):
@@ -72,10 +74,15 @@ class RingLight(RingEntityMixin, Light):
 
     def _set_light(self, new_state):
         """Update light state, and causes Home Assistant to correctly update."""
-        self._device.lights = new_state
+        try:
+            self._device.lights = new_state
+        except requests.Timeout:
+            _LOGGER.error("Time out setting %s light to %s", self.entity_id, new_state)
+            return
+
         self._light_on = new_state == ON_STATE
         self._no_updates_until = dt_util.utcnow() + SKIP_UPDATES_DELAY
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
     def turn_on(self, **kwargs):
         """Turn the light on for 30 seconds."""

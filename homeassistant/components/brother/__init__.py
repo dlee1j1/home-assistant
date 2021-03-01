@@ -9,20 +9,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_TYPE
 from homeassistant.core import Config, HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.util import Throttle
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import DATA_CONFIG_ENTRY, DOMAIN, SNMP
+from .utils import get_snmp_engine
 
 PLATFORMS = ["sensor"]
 
-DEFAULT_SCAN_INTERVAL = timedelta(seconds=30)
+SCAN_INTERVAL = timedelta(seconds=30)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup(hass: HomeAssistant, config: Config):
     """Set up the Brother component."""
-    hass.data[DOMAIN] = {}
     return True
 
 
@@ -31,14 +31,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     host = entry.data[CONF_HOST]
     kind = entry.data[CONF_TYPE]
 
-    brother = BrotherPrinterData(host, kind)
+    snmp_engine = get_snmp_engine(hass)
 
-    await brother.async_update()
+    coordinator = BrotherDataUpdateCoordinator(
+        hass, host=host, kind=kind, snmp_engine=snmp_engine
+    )
+    await coordinator.async_refresh()
 
-    if not brother.available:
-        raise ConfigEntryNotReady()
+    if not coordinator.last_update_success:
+        raise ConfigEntryNotReady
 
-    hass.data[DOMAIN][entry.entry_id] = brother
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault(DATA_CONFIG_ENTRY, {})
+    hass.data[DOMAIN][DATA_CONFIG_ENTRY][entry.entry_id] = coordinator
+    hass.data[DOMAIN][SNMP] = snmp_engine
 
     for component in PLATFORMS:
         hass.async_create_task(
@@ -59,44 +65,32 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
         )
     )
     if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN][DATA_CONFIG_ENTRY].pop(entry.entry_id)
+        if not hass.data[DOMAIN][DATA_CONFIG_ENTRY]:
+            hass.data[DOMAIN].pop(SNMP)
+            hass.data[DOMAIN].pop(DATA_CONFIG_ENTRY)
 
     return unload_ok
 
 
-class BrotherPrinterData:
-    """Define an object to hold sensor data."""
+class BrotherDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching Brother data from the printer."""
 
-    def __init__(self, host, kind):
+    def __init__(self, hass, host, kind, snmp_engine):
         """Initialize."""
-        self._brother = Brother(host, kind=kind)
-        self.host = host
-        self.model = None
-        self.serial = None
-        self.firmware = None
-        self.available = False
-        self.data = {}
-        self.unavailable_logged = False
+        self.brother = Brother(host, kind=kind, snmp_engine=snmp_engine)
 
-    @Throttle(DEFAULT_SCAN_INTERVAL)
-    async def async_update(self):
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=DOMAIN,
+            update_interval=SCAN_INTERVAL,
+        )
+
+    async def _async_update_data(self):
         """Update data via library."""
         try:
-            await self._brother.async_update()
+            await self.brother.async_update()
         except (ConnectionError, SnmpError, UnsupportedModel) as error:
-            if not self.unavailable_logged:
-                _LOGGER.error(
-                    "Could not fetch data from %s, error: %s", self.host, error
-                )
-                self.unavailable_logged = True
-            self.available = self._brother.available
-            return
-
-        self.model = self._brother.model
-        self.serial = self._brother.serial
-        self.firmware = self._brother.firmware
-        self.available = self._brother.available
-        self.data = self._brother.data
-        if self.available and self.unavailable_logged:
-            _LOGGER.info("Printer %s is available again", self.host)
-            self.unavailable_logged = False
+            raise UpdateFailed(error) from error
+        return self.brother.data

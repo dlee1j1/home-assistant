@@ -26,6 +26,7 @@ from homeassistant.components.notify import (
     BaseNotificationService,
 )
 from homeassistant.const import (
+    ATTR_NAME,
     HTTP_BAD_REQUEST,
     HTTP_INTERNAL_SERVER_ERROR,
     HTTP_UNAUTHORIZED,
@@ -73,7 +74,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 
 ATTR_SUBSCRIPTION = "subscription"
 ATTR_BROWSER = "browser"
-ATTR_NAME = "name"
 
 ATTR_ENDPOINT = "endpoint"
 ATTR_KEYS = "keys"
@@ -242,7 +242,9 @@ class HTML5PushRegistrationView(HomeAssistantView):
         try:
             hass = request.app["hass"]
 
-            await hass.async_add_job(save_json, self.json_path, self.registrations)
+            await hass.async_add_executor_job(
+                save_json, self.json_path, self.registrations
+            )
             return self.json_message("Push notification subscriber registered.")
         except HomeAssistantError:
             if previous_registration is not None:
@@ -288,7 +290,9 @@ class HTML5PushRegistrationView(HomeAssistantView):
         try:
             hass = request.app["hass"]
 
-            await hass.async_add_job(save_json, self.json_path, self.registrations)
+            await hass.async_add_executor_job(
+                save_json, self.json_path, self.registrations
+            )
         except HomeAssistantError:
             self.registrations[found] = reg
             return self.json_message(
@@ -335,7 +339,7 @@ class HTML5PushCallbackView(HomeAssistantView):
     def check_authorization_header(self, request):
         """Check the authorization header."""
 
-        auth = request.headers.get(AUTHORIZATION, None)
+        auth = request.headers.get(AUTHORIZATION)
         if not auth:
             return self.json_message(
                 "Authorization header is expected", status_code=HTTP_UNAUTHORIZED
@@ -392,7 +396,7 @@ class HTML5PushCallbackView(HomeAssistantView):
                 humanize_error(event_payload, ex),
             )
 
-        event_name = "{}.{}".format(NOTIFY_CALLBACK_EVENT, event_payload[ATTR_TYPE])
+        event_name = f"{NOTIFY_CALLBACK_EVENT}.{event_payload[ATTR_TYPE]}"
         request.app["hass"].bus.fire(event_name, event_payload)
         return self.json({"status": "ok", "event": event_payload[ATTR_TYPE]})
 

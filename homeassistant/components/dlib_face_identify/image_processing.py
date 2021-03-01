@@ -14,12 +14,12 @@ from homeassistant.components.image_processing import (
     PLATFORM_SCHEMA,
     ImageProcessingFaceEntity,
 )
+from homeassistant.const import ATTR_NAME
 from homeassistant.core import split_entity_id
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTR_NAME = "name"
 CONF_FACES = "faces"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
@@ -59,7 +59,7 @@ class DlibFaceIdentifyEntity(ImageProcessingFaceEntity):
         if name:
             self._name = name
         else:
-            self._name = "Dlib Face {0}".format(split_entity_id(camera_entity)[1])
+            self._name = f"Dlib Face {split_entity_id(camera_entity)[1]}"
 
         self._faces = {}
         for face_name, face_file in faces.items():

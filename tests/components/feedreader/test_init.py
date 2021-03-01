@@ -1,6 +1,5 @@
 """The tests for the feedreader component."""
 from datetime import timedelta
-from logging import getLogger
 from os import remove
 from os.path import exists
 import time
@@ -24,8 +23,6 @@ from homeassistant.setup import setup_component
 
 from tests.common import get_test_home_assistant, load_fixture
 
-_LOGGER = getLogger(__name__)
-
 URL = "http://some.rss.local/rss_feed.xml"
 VALID_CONFIG_1 = {feedreader.DOMAIN: {CONF_URLS: [URL]}}
 VALID_CONFIG_2 = {feedreader.DOMAIN: {CONF_URLS: [URL], CONF_SCAN_INTERVAL: 60}}
@@ -38,13 +35,13 @@ class TestFeedreaderComponent(unittest.TestCase):
     def setUp(self):
         """Initialize values for this testcase class."""
         self.hass = get_test_home_assistant()
-        # Delete any previously stored data
-        data_file = self.hass.config.path("{}.pickle".format("feedreader"))
+        self.addCleanup(self.tear_down_cleanup)
+
+    def tear_down_cleanup(self):
+        """Clean up files and stop Home Assistant."""
+        data_file = self.hass.config.path(f"{feedreader.DOMAIN}.pickle")
         if exists(data_file):
             remove(data_file)
-
-    def tearDown(self):
-        """Stop everything that was started."""
         self.hass.stop()
 
     def test_setup_one_feed(self):
@@ -85,7 +82,7 @@ class TestFeedreaderComponent(unittest.TestCase):
         # Loading raw data from fixture and plug in to data object as URL
         # works since the third-party feedparser library accepts a URL
         # as well as the actual data.
-        data_file = self.hass.config.path("{}.pickle".format(feedreader.DOMAIN))
+        data_file = self.hass.config.path(f"{feedreader.DOMAIN}.pickle")
         storage = StoredData(data_file)
         with patch(
             "homeassistant.components.feedreader.track_time_interval"
@@ -179,7 +176,7 @@ class TestFeedreaderComponent(unittest.TestCase):
     @mock.patch("feedparser.parse", return_value=None)
     def test_feed_parsing_failed(self, mock_parse):
         """Test feed where parsing fails."""
-        data_file = self.hass.config.path("{}.pickle".format(feedreader.DOMAIN))
+        data_file = self.hass.config.path(f"{feedreader.DOMAIN}.pickle")
         storage = StoredData(data_file)
         manager = FeedManager(
             "FEED DATA", DEFAULT_SCAN_INTERVAL, DEFAULT_MAX_ENTRIES, self.hass, storage

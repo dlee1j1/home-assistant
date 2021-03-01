@@ -2,7 +2,9 @@
 from datetime import timedelta
 import logging
 
-from homeassistant.components.switch import SwitchDevice
+import requests
+
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import callback
 import homeassistant.util.dt as dt_util
 
@@ -34,7 +36,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities(switches)
 
 
-class BaseRingSwitch(RingEntityMixin, SwitchDevice):
+class BaseRingSwitch(RingEntityMixin, SwitchEntity):
     """Represents a switch for controlling an aspect of a ring device."""
 
     def __init__(self, config_entry_id, device, device_type):
@@ -74,7 +76,12 @@ class SirenSwitch(BaseRingSwitch):
 
     def _set_switch(self, new_state):
         """Update switch state, and causes Home Assistant to correctly update."""
-        self._device.siren = new_state
+        try:
+            self._device.siren = new_state
+        except requests.Timeout:
+            _LOGGER.error("Time out setting %s siren to %s", self.entity_id, new_state)
+            return
+
         self._siren_on = new_state > 0
         self._no_updates_until = dt_util.utcnow() + SKIP_UPDATES_DELAY
         self.schedule_update_ha_state()

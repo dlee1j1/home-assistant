@@ -18,17 +18,11 @@ from homeassistant.components.cover import (
     STATE_OPEN,
     STATE_OPENING,
 )
-from homeassistant.components.smartthings import cover
 from homeassistant.components.smartthings.const import DOMAIN, SIGNAL_SMARTTHINGS_UPDATE
-from homeassistant.const import ATTR_BATTERY_LEVEL, ATTR_ENTITY_ID
+from homeassistant.const import ATTR_BATTERY_LEVEL, ATTR_ENTITY_ID, STATE_UNAVAILABLE
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .conftest import setup_platform
-
-
-async def test_async_setup_platform():
-    """Test setup platform does nothing (it uses config entries)."""
-    await cover.async_setup_platform(None, None, None)
 
 
 async def test_entity_and_device_attributes(hass, device_factory):
@@ -46,7 +40,7 @@ async def test_entity_and_device_attributes(hass, device_factory):
     assert entry
     assert entry.unique_id == device.device_id
 
-    entry = device_registry.async_get_device({(DOMAIN, device.device_id)}, [])
+    entry = device_registry.async_get_device({(DOMAIN, device.device_id)})
     assert entry
     assert entry.name == device.label
     assert entry.model == device.device_type_name
@@ -199,4 +193,4 @@ async def test_unload_config_entry(hass, device_factory):
     # Act
     await hass.config_entries.async_forward_entry_unload(config_entry, COVER_DOMAIN)
     # Assert
-    assert not hass.states.get("cover.garage")
+    assert hass.states.get("cover.garage").state == STATE_UNAVAILABLE

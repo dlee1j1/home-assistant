@@ -1,6 +1,5 @@
 """This component provides HA sensor support for Ring Door Bell/Chimes."""
-import logging
-
+from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS_MILLIWATT
 from homeassistant.core import callback
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.icon import icon_for_battery_level
@@ -8,24 +7,16 @@ from homeassistant.helpers.icon import icon_for_battery_level
 from . import DOMAIN
 from .entity import RingEntityMixin
 
-_LOGGER = logging.getLogger(__name__)
-
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     """Set up a sensor for a Ring device."""
     devices = hass.data[DOMAIN][config_entry.entry_id]["devices"]
-
-    # Makes a ton of requests. We will make this a config entry option in the future
-    wifi_enabled = False
 
     sensors = []
 
     for device_type in ("chimes", "doorbots", "authorized_doorbots", "stickup_cams"):
         for sensor_type in SENSOR_TYPES:
             if device_type not in SENSOR_TYPES[sensor_type][1]:
-                continue
-
-            if not wifi_enabled and sensor_type.startswith("wifi_"):
                 continue
 
             for device in devices[device_type]:
@@ -51,9 +42,7 @@ class RingSensor(RingEntityMixin, Entity):
         self._extra = None
         self._icon = "mdi:{}".format(SENSOR_TYPES.get(sensor_type)[3])
         self._kind = SENSOR_TYPES.get(sensor_type)[4]
-        self._name = "{0} {1}".format(
-            self._device.name, SENSOR_TYPES.get(sensor_type)[0]
-        )
+        self._name = "{} {}".format(self._device.name, SENSOR_TYPES.get(sensor_type)[0])
         self._unique_id = f"{device.id}-{sensor_type}"
 
     @property
@@ -123,6 +112,12 @@ class HealthDataRingSensor(RingSensor):
     def _health_update_callback(self, _health_data):
         """Call update method."""
         self.async_write_ha_state()
+
+    @property
+    def entity_registry_enabled_default(self) -> bool:
+        """Return if the entity should be enabled when first added to the entity registry."""
+        # These sensors are data hungry and not useful. Disable by default.
+        return False
 
     @property
     def state(self):
@@ -203,7 +198,7 @@ SENSOR_TYPES = {
     "battery": [
         "Battery",
         ["doorbots", "authorized_doorbots", "stickup_cams"],
-        "%",
+        PERCENTAGE,
         None,
         None,
         "battery",
@@ -257,7 +252,7 @@ SENSOR_TYPES = {
     "wifi_signal_strength": [
         "WiFi Signal Strength",
         ["chimes", "doorbots", "authorized_doorbots", "stickup_cams"],
-        "dBm",
+        SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         "wifi",
         None,
         "signal_strength",

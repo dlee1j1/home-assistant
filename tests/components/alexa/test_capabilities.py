@@ -1,4 +1,6 @@
 """Test Alexa capabilities."""
+from unittest.mock import patch
+
 import pytest
 
 from homeassistant.components.alexa import smart_home
@@ -8,6 +10,8 @@ from homeassistant.components.media_player.const import (
     SUPPORT_PAUSE,
     SUPPORT_PLAY,
     SUPPORT_STOP,
+    SUPPORT_VOLUME_MUTE,
+    SUPPORT_VOLUME_SET,
 )
 from homeassistant.const import (
     ATTR_UNIT_OF_MEASUREMENT,
@@ -319,6 +323,7 @@ async def test_report_fan_speed_state(hass):
             "friendly_name": "Off fan",
             "speed": "off",
             "supported_features": 1,
+            "percentage": 0,
             "speed_list": ["off", "low", "medium", "high"],
         },
     )
@@ -329,6 +334,7 @@ async def test_report_fan_speed_state(hass):
             "friendly_name": "Low speed fan",
             "speed": "low",
             "supported_features": 1,
+            "percentage": 33,
             "speed_list": ["off", "low", "medium", "high"],
         },
     )
@@ -339,6 +345,7 @@ async def test_report_fan_speed_state(hass):
             "friendly_name": "Medium speed fan",
             "speed": "medium",
             "supported_features": 1,
+            "percentage": 66,
             "speed_list": ["off", "low", "medium", "high"],
         },
     )
@@ -349,6 +356,7 @@ async def test_report_fan_speed_state(hass):
             "friendly_name": "High speed fan",
             "speed": "high",
             "supported_features": 1,
+            "percentage": 100,
             "speed_list": ["off", "low", "medium", "high"],
         },
     )
@@ -684,6 +692,36 @@ async def test_report_playback_state(hass):
     )
 
 
+async def test_report_speaker_volume(hass):
+    """Test Speaker reports volume correctly."""
+    hass.states.async_set(
+        "media_player.test_speaker",
+        "on",
+        {
+            "friendly_name": "Test media player speaker",
+            "supported_features": SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET,
+            "volume_level": None,
+            "device_class": "speaker",
+        },
+    )
+    properties = await reported_properties(hass, "media_player.test_speaker")
+    properties.assert_not_has_property("Alexa.Speaker", "volume")
+
+    for good_value in range(101):
+        hass.states.async_set(
+            "media_player.test_speaker",
+            "on",
+            {
+                "friendly_name": "Test media player speaker",
+                "supported_features": SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET,
+                "volume_level": good_value / 100,
+                "device_class": "speaker",
+            },
+        )
+        properties = await reported_properties(hass, "media_player.test_speaker")
+        properties.assert_equal("Alexa.Speaker", "volume", good_value)
+
+
 async def test_report_image_processing(hass):
     """Test EventDetectionSensor implements humanPresenceDetectionState property."""
     hass.states.async_set(
@@ -724,3 +762,25 @@ async def test_report_image_processing(hass):
         "humanPresenceDetectionState",
         {"value": "DETECTED"},
     )
+
+
+async def test_get_property_blowup(hass, caplog):
+    """Test we handle a property blowing up."""
+    hass.states.async_set(
+        "climate.downstairs",
+        climate.HVAC_MODE_AUTO,
+        {
+            "friendly_name": "Climate Downstairs",
+            "supported_features": 91,
+            climate.ATTR_CURRENT_TEMPERATURE: 34,
+            ATTR_UNIT_OF_MEASUREMENT: TEMP_CELSIUS,
+        },
+    )
+    with patch(
+        "homeassistant.components.alexa.capabilities.float",
+        side_effect=Exception("Boom Fail"),
+    ):
+        properties = await reported_properties(hass, "climate.downstairs")
+        properties.assert_not_has_property("Alexa.ThermostatController", "temperature")
+
+    assert "Boom Fail" in caplog.text

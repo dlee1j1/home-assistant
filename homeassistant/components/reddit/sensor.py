@@ -6,18 +6,22 @@ import praw
 import voluptuous as vol
 
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import CONF_MAXIMUM, CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import (
+    ATTR_ID,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_MAXIMUM,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+)
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_CLIENT_ID = "client_id"
-CONF_CLIENT_SECRET = "client_secret"
 CONF_SORT_BY = "sort_by"
 CONF_SUBREDDITS = "subreddits"
 
-ATTR_ID = "id"
 ATTR_BODY = "body"
 ATTR_COMMENTS_NUMBER = "comms_num"
 ATTR_CREATED = "created"

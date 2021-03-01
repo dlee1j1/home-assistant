@@ -5,8 +5,13 @@ from threading import RLock
 
 import voluptuous as vol
 
-from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchDevice
-from homeassistant.const import CONF_NAME, CONF_SWITCHES, EVENT_HOMEASSISTANT_STOP
+from homeassistant.components.switch import PLATFORM_SCHEMA, SwitchEntity
+from homeassistant.const import (
+    CONF_NAME,
+    CONF_PROTOCOL,
+    CONF_SWITCHES,
+    EVENT_HOMEASSISTANT_STOP,
+)
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
@@ -14,7 +19,6 @@ _LOGGER = logging.getLogger(__name__)
 CONF_CODE_OFF = "code_off"
 CONF_CODE_ON = "code_on"
 CONF_GPIO = "gpio"
-CONF_PROTOCOL = "protocol"
 CONF_PULSELENGTH = "pulselength"
 CONF_SIGNAL_REPETITIONS = "signal_repetitions"
 
@@ -73,7 +77,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
     hass.bus.listen_once(EVENT_HOMEASSISTANT_STOP, lambda event: rfdevice.cleanup())
 
 
-class RPiRFSwitch(SwitchDevice):
+class RPiRFSwitch(SwitchEntity):
     """Representation of a GPIO RF switch."""
 
     def __init__(

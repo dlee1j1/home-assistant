@@ -10,7 +10,9 @@ import voluptuous as vol
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
+    ATTR_STATE,
     CONF_COMMAND,
+    CONF_DEVICE_ID,
     CONF_HOST,
     CONF_PORT,
     EVENT_HOMEASSISTANT_STOP,
@@ -29,27 +31,26 @@ from homeassistant.helpers.restore_state import RestoreEntity
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_EVENT = "event"
-ATTR_STATE = "state"
 
 CONF_ALIASES = "aliases"
 CONF_GROUP_ALIASES = "group_aliases"
 CONF_GROUP = "group"
 CONF_NOGROUP_ALIASES = "nogroup_aliases"
 CONF_DEVICE_DEFAULTS = "device_defaults"
-CONF_DEVICE_ID = "device_id"
-CONF_DEVICES = "devices"
 CONF_AUTOMATIC_ADD = "automatic_add"
 CONF_FIRE_EVENT = "fire_event"
 CONF_IGNORE_DEVICES = "ignore_devices"
 CONF_RECONNECT_INTERVAL = "reconnect_interval"
 CONF_SIGNAL_REPETITIONS = "signal_repetitions"
 CONF_WAIT_FOR_ACK = "wait_for_ack"
+CONF_KEEPALIVE_IDLE = "tcp_keepalive_idle_timer"
 
 DATA_DEVICE_REGISTER = "rflink_device_register"
 DATA_ENTITY_LOOKUP = "rflink_entity_lookup"
 DATA_ENTITY_GROUP_LOOKUP = "rflink_entity_group_only_lookup"
 DEFAULT_RECONNECT_INTERVAL = 10
 DEFAULT_SIGNAL_REPETITIONS = 1
+DEFAULT_TCP_KEEPALIVE_IDLE_TIMER = 3600
 CONNECTION_TIMEOUT = 10
 
 EVENT_BUTTON_PRESSED = "button_pressed"
@@ -85,6 +86,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_PORT): vol.Any(cv.port, cv.string),
                 vol.Optional(CONF_HOST): cv.string,
                 vol.Optional(CONF_WAIT_FOR_ACK, default=True): cv.boolean,
+                vol.Optional(
+                    CONF_KEEPALIVE_IDLE, default=DEFAULT_TCP_KEEPALIVE_IDLE_TIMER
+                ): int,
                 vol.Optional(
                     CONF_RECONNECT_INTERVAL, default=DEFAULT_RECONNECT_INTERVAL
                 ): int,
@@ -158,7 +162,7 @@ async def async_setup(hass, config):
             return
 
         # Lookup entities who registered this device id as device id or alias
-        event_id = event.get(EVENT_KEY_ID, None)
+        event_id = event.get(EVENT_KEY_ID)
 
         is_group_event = (
             event_type == EVENT_KEY_COMMAND
@@ -199,6 +203,26 @@ async def async_setup(hass, config):
     # TCP port when host configured, otherwise serial port
     port = config[DOMAIN][CONF_PORT]
 
+    # TCP KEEPALIVE will be enabled if value > 0
+    keepalive_idle_timer = config[DOMAIN][CONF_KEEPALIVE_IDLE]
+    if keepalive_idle_timer < 0:
+        _LOGGER.error(
+            "A bogus TCP Keepalive IDLE timer was provided (%d secs), "
+            "default value will be used. "
+            "Recommended values: 60-3600 (seconds)",
+            keepalive_idle_timer,
+        )
+        keepalive_idle_timer = DEFAULT_TCP_KEEPALIVE_IDLE_TIMER
+    elif keepalive_idle_timer == 0:
+        keepalive_idle_timer = None
+    elif keepalive_idle_timer <= 30:
+        _LOGGER.warning(
+            "A very short TCP Keepalive IDLE timer was provided (%d secs), "
+            "and may produce unexpected disconnections from RFlink device."
+            " Recommended values: 60-3600 (seconds)",
+            keepalive_idle_timer,
+        )
+
     @callback
     def reconnect(exc=None):
         """Schedule reconnect after connection has been unexpectedly lost."""
@@ -223,6 +247,7 @@ async def async_setup(hass, config):
         connection = create_rflink_connection(
             port=port,
             host=host,
+            keepalive=keepalive_idle_timer,
             event_callback=event_callback,
             disconnect_callback=reconnect,
             loop=hass.loop,
@@ -230,7 +255,7 @@ async def async_setup(hass, config):
         )
 
         try:
-            with async_timeout.timeout(CONNECTION_TIMEOUT, loop=hass.loop):
+            with async_timeout.timeout(CONNECTION_TIMEOUT):
                 transport, protocol = await connection
 
         except (
@@ -313,7 +338,7 @@ class RflinkDevice(Entity):
         self._handle_event(event)
 
         # Propagate changes through ha
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
         # Put command onto bus for user to subscribe to
         if self._should_fire_event and identify_event_type(event) == EVENT_KEY_COMMAND:
@@ -360,7 +385,7 @@ class RflinkDevice(Entity):
     def _availability_callback(self, availability):
         """Update availability state."""
         self._available = availability
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self):
         """Register update callback."""
@@ -404,13 +429,17 @@ class RflinkDevice(Entity):
                 self.hass.data[DATA_ENTITY_LOOKUP][EVENT_KEY_COMMAND][_id].append(
                     self.entity_id
                 )
-        async_dispatcher_connect(
-            self.hass, SIGNAL_AVAILABILITY, self._availability_callback
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_AVAILABILITY, self._availability_callback
+            )
         )
-        async_dispatcher_connect(
-            self.hass,
-            SIGNAL_HANDLE_EVENT.format(self.entity_id),
-            self.handle_event_callback,
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HANDLE_EVENT.format(self.entity_id),
+                self.handle_event_callback,
+            )
         )
 
         # Process the initial event now that the entity is created
@@ -494,7 +523,7 @@ class RflinkCommand(RflinkDevice):
         await self._async_send_command(cmd, self._signal_repetitions)
 
         # Update state of entity
-        await self.async_update_ha_state()
+        self.async_write_ha_state()
 
     def cancel_queued_send_commands(self):
         """Cancel queued signal repetition commands.
@@ -516,7 +545,7 @@ class RflinkCommand(RflinkDevice):
 
         if self._wait_ack:
             # Puts command on outgoing buffer then waits for Rflink to confirm
-            # the command has been send out in the ether.
+            # the command has been sent out.
             await self._protocol.send_command_ack(self._device_id, cmd)
         else:
             # Puts command on outgoing buffer and returns straight away.
@@ -552,10 +581,10 @@ class SwitchableRflinkDevice(RflinkCommand, RestoreEntity):
         elif command in ["off", "alloff"]:
             self._state = False
 
-    def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **kwargs):
         """Turn the device on."""
-        return self._async_handle_command("turn_on")
+        await self._async_handle_command("turn_on")
 
-    def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **kwargs):
         """Turn the device off."""
-        return self._async_handle_command("turn_off")
+        await self._async_handle_command("turn_off")

@@ -25,6 +25,7 @@ from homeassistant.components.timer import (
     STATUS_ACTIVE,
     STATUS_IDLE,
     STATUS_PAUSED,
+    _format_timedelta,
 )
 from homeassistant.const import (
     ATTR_EDITABLE,
@@ -33,6 +34,7 @@ from homeassistant.const import (
     ATTR_ID,
     ATTR_NAME,
     CONF_ENTITY_ID,
+    EVENT_STATE_CHANGED,
     SERVICE_RELOAD,
 )
 from homeassistant.core import Context, CoreState
@@ -60,7 +62,7 @@ def storage_setup(hass, hass_storage):
                         {
                             ATTR_ID: "from_storage",
                             ATTR_NAME: "timer from storage",
-                            ATTR_DURATION: 0,
+                            ATTR_DURATION: "0:00:00",
                         }
                     ]
                 },
@@ -406,6 +408,47 @@ async def test_timer_restarted_event(hass):
     assert len(results) == 4
 
 
+async def test_state_changed_when_timer_restarted(hass):
+    """Ensure timer's state changes when it restarted."""
+    hass.state = CoreState.starting
+
+    await async_setup_component(hass, DOMAIN, {DOMAIN: {"test1": {CONF_DURATION: 10}}})
+
+    state = hass.states.get("timer.test1")
+    assert state
+    assert state.state == STATUS_IDLE
+
+    results = []
+
+    def fake_event_listener(event):
+        """Fake event listener for trigger."""
+        results.append(event)
+
+    hass.bus.async_listen(EVENT_STATE_CHANGED, fake_event_listener)
+
+    await hass.services.async_call(
+        DOMAIN, SERVICE_START, {CONF_ENTITY_ID: "timer.test1"}
+    )
+    await hass.async_block_till_done()
+    state = hass.states.get("timer.test1")
+    assert state
+    assert state.state == STATUS_ACTIVE
+
+    assert results[-1].event_type == EVENT_STATE_CHANGED
+    assert len(results) == 1
+
+    await hass.services.async_call(
+        DOMAIN, SERVICE_START, {CONF_ENTITY_ID: "timer.test1"}
+    )
+    await hass.async_block_till_done()
+    state = hass.states.get("timer.test1")
+    assert state
+    assert state.state == STATUS_ACTIVE
+
+    assert results[-1].event_type == EVENT_STATE_CHANGED
+    assert len(results) == 2
+
+
 async def test_load_from_storage(hass, storage_setup):
     """Test set up from storage."""
     assert await storage_setup()
@@ -502,7 +545,7 @@ async def test_update(hass, hass_ws_client, storage_setup):
     assert resp["success"]
 
     state = hass.states.get(timer_entity_id)
-    assert state.attributes[ATTR_DURATION] == str(cv.time_period(33))
+    assert state.attributes[ATTR_DURATION] == _format_timedelta(cv.time_period(33))
 
 
 async def test_ws_create(hass, hass_ws_client, storage_setup):
@@ -532,7 +575,7 @@ async def test_ws_create(hass, hass_ws_client, storage_setup):
 
     state = hass.states.get(timer_entity_id)
     assert state.state == STATUS_IDLE
-    assert state.attributes[ATTR_DURATION] == str(cv.time_period(42))
+    assert state.attributes[ATTR_DURATION] == _format_timedelta(cv.time_period(42))
     assert ent_reg.async_get_entity_id(DOMAIN, DOMAIN, timer_id) == timer_entity_id
 
 

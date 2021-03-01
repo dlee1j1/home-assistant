@@ -1,6 +1,6 @@
 """The tests for the Netgear Arlo sensors."""
 from collections import namedtuple
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +9,7 @@ from homeassistant.const import (
     ATTR_ATTRIBUTION,
     DEVICE_CLASS_HUMIDITY,
     DEVICE_CLASS_TEMPERATURE,
+    PERCENTAGE,
 )
 
 
@@ -93,7 +94,7 @@ def sensor_with_hass_data(default_sensor, hass):
 def mock_dispatch():
     """Mock the dispatcher connect method."""
     target = "homeassistant.components.arlo.sensor.async_dispatcher_connect"
-    with patch(target, MagicMock()) as _mock:
+    with patch(target) as _mock:
         yield _mock
 
 
@@ -168,7 +169,7 @@ def test_sensor_icon(temperature_sensor):
 def test_unit_of_measure(default_sensor, battery_sensor):
     """Test the unit_of_measurement property."""
     assert default_sensor.unit_of_measurement is None
-    assert battery_sensor.unit_of_measurement == "%"
+    assert battery_sensor.unit_of_measurement == PERCENTAGE
 
 
 def test_device_class(default_sensor, temperature_sensor, humidity_sensor):

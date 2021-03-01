@@ -11,11 +11,13 @@ import voluptuous as vol
 from homeassistant.components.geo_location import PLATFORM_SCHEMA, GeolocationEvent
 from homeassistant.const import (
     ATTR_ATTRIBUTION,
+    ATTR_TIME,
     CONF_LATITUDE,
     CONF_LONGITUDE,
     CONF_RADIUS,
     CONF_SCAN_INTERVAL,
     EVENT_HOMEASSISTANT_START,
+    LENGTH_KILOMETERS,
 )
 from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
@@ -29,7 +31,6 @@ ATTR_EXTERNAL_ID = "external_id"
 ATTR_MAGNITUDE = "magnitude"
 ATTR_PLACE = "place"
 ATTR_STATUS = "status"
-ATTR_TIME = "time"
 ATTR_TYPE = "type"
 ATTR_UPDATED = "updated"
 
@@ -38,7 +39,7 @@ CONF_MINIMUM_MAGNITUDE = "minimum_magnitude"
 
 DEFAULT_MINIMUM_MAGNITUDE = 0.0
 DEFAULT_RADIUS_IN_KM = 50.0
-DEFAULT_UNIT_OF_MEASUREMENT = "km"
+DEFAULT_UNIT_OF_MEASUREMENT = LENGTH_KILOMETERS
 
 SCAN_INTERVAL = timedelta(minutes=5)
 
@@ -78,7 +79,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_RADIUS, default=DEFAULT_RADIUS_IN_KM): vol.Coerce(float),
         vol.Optional(
             CONF_MINIMUM_MAGNITUDE, default=DEFAULT_MINIMUM_MAGNITUDE
-        ): vol.All(vol.Coerce(float), vol.Range(min=0)),
+        ): cv.positive_float,
     }
 )
 
@@ -209,7 +210,7 @@ class UsgsEarthquakesEvent(GeolocationEvent):
         """Remove this entity."""
         self._remove_signal_delete()
         self._remove_signal_update()
-        self.hass.async_create_task(self.async_remove())
+        self.hass.async_create_task(self.async_remove(force_remove=True))
 
     @callback
     def _update_callback(self):

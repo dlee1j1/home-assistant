@@ -1,7 +1,4 @@
 """Internal discovery service for  iZone AC."""
-
-import logging
-
 import pizone
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
@@ -17,8 +14,6 @@ from .const import (
     DISPATCH_CONTROLLER_UPDATE,
     DISPATCH_ZONE_UPDATE,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class DiscoveryService(pizone.Listener):
@@ -44,11 +39,11 @@ class DiscoveryService(pizone.Listener):
         async_dispatcher_send(self.hass, DISPATCH_CONTROLLER_RECONNECTED, ctrl)
 
     def controller_update(self, ctrl: pizone.Controller) -> None:
-        """System update message is recieved from the controller."""
+        """System update message is received from the controller."""
         async_dispatcher_send(self.hass, DISPATCH_CONTROLLER_UPDATE, ctrl)
 
     def zone_update(self, ctrl: pizone.Controller, zone: pizone.Zone) -> None:
-        """Zone update message is recieved from the controller."""
+        """Zone update message is received from the controller."""
         async_dispatcher_send(self.hass, DISPATCH_ZONE_UPDATE, ctrl, zone)
 
 

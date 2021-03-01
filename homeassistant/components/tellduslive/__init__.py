@@ -12,7 +12,6 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 
-from . import config_flow  # noqa: F401
 from .const import (
     CONF_HOST,
     DOMAIN,
@@ -81,7 +80,7 @@ async def async_setup_entry(hass, entry):
 async def async_new_client(hass, session, entry):
     """Add the hubs associated with the current client to device_registry."""
     interval = entry.data[KEY_SCAN_INTERVAL]
-    _LOGGER.debug("Update interval %s seconds.", interval)
+    _LOGGER.debug("Update interval %s seconds", interval)
     client = TelldusLiveClient(hass, entry, session, interval)
     hass.data[DOMAIN] = client
     dev_reg = await hass.helpers.device_registry.async_get_registry()

@@ -8,7 +8,14 @@ import voluptuous as vol
 from homeassistant.components import mqtt
 from homeassistant.components.mqtt import CONF_STATE_TOPIC
 from homeassistant.components.sensor import PLATFORM_SCHEMA
-from homeassistant.const import ATTR_ID, CONF_NAME, CONF_TIMEOUT, STATE_NOT_HOME
+from homeassistant.const import (
+    ATTR_DEVICE_ID,
+    ATTR_ID,
+    CONF_DEVICE_ID,
+    CONF_NAME,
+    CONF_TIMEOUT,
+    STATE_NOT_HOME,
+)
 from homeassistant.core import callback
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
@@ -16,11 +23,9 @@ from homeassistant.util import dt, slugify
 
 _LOGGER = logging.getLogger(__name__)
 
-ATTR_DEVICE_ID = "device_id"
 ATTR_DISTANCE = "distance"
 ATTR_ROOM = "room"
 
-CONF_DEVICE_ID = "device_id"
 CONF_AWAY_TIMEOUT = "away_timeout"
 
 DEFAULT_AWAY_TIMEOUT = 0
@@ -73,7 +78,7 @@ class MQTTRoomSensor(Entity):
         """Initialize the sensor."""
         self._state = STATE_NOT_HOME
         self._name = name
-        self._state_topic = "{}{}".format(state_topic, "/+")
+        self._state_topic = f"{state_topic}/+"
         self._device_id = slugify(device_id).upper()
         self._timeout = timeout
         self._consider_home = (
@@ -92,7 +97,7 @@ class MQTTRoomSensor(Entity):
             self._distance = distance
             self._updated = dt.utcnow()
 
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
         @callback
         def message_received(msg):

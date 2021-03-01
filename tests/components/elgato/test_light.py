@@ -1,7 +1,8 @@
 """Tests for the Elgato Key Light light platform."""
 from unittest.mock import patch
 
-from homeassistant.components.elgato.light import ElgatoError
+from elgato import ElgatoError
+
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
@@ -51,7 +52,8 @@ async def test_light_change_state(
     assert state.state == STATE_ON
 
     with patch(
-        "homeassistant.components.elgato.light.Elgato.light", return_value=mock_coro(),
+        "homeassistant.components.elgato.light.Elgato.light",
+        return_value=mock_coro(),
     ) as mock_light:
         await hass.services.async_call(
             LIGHT_DOMAIN,
@@ -68,7 +70,8 @@ async def test_light_change_state(
         mock_light.assert_called_with(on=True, brightness=100, temperature=100)
 
     with patch(
-        "homeassistant.components.elgato.light.Elgato.light", return_value=mock_coro(),
+        "homeassistant.components.elgato.light.Elgato.light",
+        return_value=mock_coro(),
     ) as mock_light:
         await hass.services.async_call(
             LIGHT_DOMAIN,
@@ -87,7 +90,8 @@ async def test_light_unavailable(
     """Test error/unavailable handling of an Elgato Key Light."""
     await init_integration(hass, aioclient_mock)
     with patch(
-        "homeassistant.components.elgato.light.Elgato.light", side_effect=ElgatoError,
+        "homeassistant.components.elgato.light.Elgato.light",
+        side_effect=ElgatoError,
     ):
         with patch(
             "homeassistant.components.elgato.light.Elgato.state",

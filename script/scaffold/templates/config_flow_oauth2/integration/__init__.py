@@ -56,14 +56,16 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Set up NEW_NAME from a config entry."""
-    implementation = await config_entry_oauth2_flow.async_get_config_entry_implementation(
-        hass, entry
+    implementation = (
+        await config_entry_oauth2_flow.async_get_config_entry_implementation(
+            hass, entry
+        )
     )
 
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
 
     # If using a requests-based API lib
-    hass.data[DOMAIN][entry.entry_id] = api.ConfigEntryAuth(hass, entry, session)
+    hass.data[DOMAIN][entry.entry_id] = api.ConfigEntryAuth(hass, session)
 
     # If using an aiohttp-based API lib
     hass.data[DOMAIN][entry.entry_id] = api.AsyncConfigEntryAuth(

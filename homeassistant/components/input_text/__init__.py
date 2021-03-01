@@ -1,4 +1,6 @@
 """Support to enter a value into a text box."""
+from __future__ import annotations
+
 import logging
 import typing
 
@@ -26,7 +28,6 @@ from homeassistant.helpers.typing import ConfigType, HomeAssistantType, ServiceC
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "input_text"
-ENTITY_ID_FORMAT = DOMAIN + ".{}"
 
 CONF_INITIAL = "initial"
 CONF_MIN = "min"
@@ -89,24 +90,22 @@ def _cv_input_text(cfg):
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: cv.schema_with_slug_keys(
-            vol.Any(
-                vol.All(
-                    {
-                        vol.Optional(CONF_NAME): cv.string,
-                        vol.Optional(CONF_MIN, default=CONF_MIN_VALUE): vol.Coerce(int),
-                        vol.Optional(CONF_MAX, default=CONF_MAX_VALUE): vol.Coerce(int),
-                        vol.Optional(CONF_INITIAL, ""): cv.string,
-                        vol.Optional(CONF_ICON): cv.icon,
-                        vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
-                        vol.Optional(CONF_PATTERN): cv.string,
-                        vol.Optional(CONF_MODE, default=MODE_TEXT): vol.In(
-                            [MODE_TEXT, MODE_PASSWORD]
-                        ),
-                    },
-                    _cv_input_text,
-                ),
-                None,
-            )
+            vol.All(
+                lambda value: value or {},
+                {
+                    vol.Optional(CONF_NAME): cv.string,
+                    vol.Optional(CONF_MIN, default=CONF_MIN_VALUE): vol.Coerce(int),
+                    vol.Optional(CONF_MAX, default=CONF_MAX_VALUE): vol.Coerce(int),
+                    vol.Optional(CONF_INITIAL, ""): cv.string,
+                    vol.Optional(CONF_ICON): cv.icon,
+                    vol.Optional(CONF_UNIT_OF_MEASUREMENT): cv.string,
+                    vol.Optional(CONF_PATTERN): cv.string,
+                    vol.Optional(CONF_MODE, default=MODE_TEXT): vol.In(
+                        [MODE_TEXT, MODE_PASSWORD]
+                    ),
+                },
+                _cv_input_text,
+            ),
         )
     },
     extra=vol.ALLOW_EXTRA,
@@ -122,8 +121,8 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
     yaml_collection = collection.YamlCollection(
         logging.getLogger(f"{__name__}.yaml_collection"), id_manager
     )
-    collection.attach_entity_component_collection(
-        component, yaml_collection, InputText.from_yaml
+    collection.sync_entity_lifecycle(
+        hass, DOMAIN, DOMAIN, component, yaml_collection, InputText.from_yaml
     )
 
     storage_collection = InputTextStorageCollection(
@@ -131,8 +130,8 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
         logging.getLogger(f"{__name__}.storage_collection"),
         id_manager,
     )
-    collection.attach_entity_component_collection(
-        component, storage_collection, InputText
+    collection.sync_entity_lifecycle(
+        hass, DOMAIN, DOMAIN, component, storage_collection, InputText
     )
 
     await yaml_collection.async_load(
@@ -143,9 +142,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
     collection.StorageCollectionWebsocket(
         storage_collection, DOMAIN, DOMAIN, CREATE_FIELDS, UPDATE_FIELDS
     ).async_setup(hass)
-
-    collection.attach_entity_registry_cleaner(hass, DOMAIN, DOMAIN, yaml_collection)
-    collection.attach_entity_registry_cleaner(hass, DOMAIN, DOMAIN, storage_collection)
 
     async def reload_service_handler(service_call: ServiceCallType) -> None:
         """Reload yaml entities."""
@@ -202,17 +198,10 @@ class InputText(RestoreEntity):
         self._current_value = config.get(CONF_INITIAL)
 
     @classmethod
-    def from_yaml(cls, config: typing.Dict) -> "InputText":
+    def from_yaml(cls, config: typing.Dict) -> InputText:
         """Return entity instance initialized from yaml storage."""
-        # set defaults for empty config
-        config = {
-            CONF_MAX: CONF_MAX_VALUE,
-            CONF_MIN: CONF_MIN_VALUE,
-            CONF_MODE: MODE_TEXT,
-            **config,
-        }
         input_text = cls(config)
-        input_text.entity_id = ENTITY_ID_FORMAT.format(config[CONF_ID])
+        input_text.entity_id = f"{DOMAIN}.{config[CONF_ID]}"
         input_text.editable = False
         return input_text
 

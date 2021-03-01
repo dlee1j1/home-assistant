@@ -5,22 +5,25 @@ import logging
 import os
 import time
 
-from RestrictedPython import compile_restricted_exec
+from RestrictedPython import (
+    compile_restricted_exec,
+    limited_builtins,
+    safe_builtins,
+    utility_builtins,
+)
 from RestrictedPython.Eval import default_guarded_getitem
 from RestrictedPython.Guards import (
     full_write_guard,
     guarded_iter_unpack_sequence,
     guarded_unpack_sequence,
-    safe_builtins,
 )
-from RestrictedPython.Utilities import utility_builtins
 import voluptuous as vol
 
 from homeassistant.const import SERVICE_RELOAD
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.service import async_set_service_schema
 from homeassistant.loader import bind_hass
-from homeassistant.util import sanitize_filename
+from homeassistant.util import raise_if_invalid_filename
 import homeassistant.util.dt as dt_util
 from homeassistant.util.yaml.loader import load_yaml
 
@@ -32,36 +35,45 @@ FOLDER = "python_scripts"
 
 CONFIG_SCHEMA = vol.Schema({DOMAIN: vol.Schema(dict)}, extra=vol.ALLOW_EXTRA)
 
-ALLOWED_HASS = set(["bus", "services", "states"])
-ALLOWED_EVENTBUS = set(["fire"])
-ALLOWED_STATEMACHINE = set(
-    ["entity_ids", "all", "get", "is_state", "is_state_attr", "remove", "set"]
-)
-ALLOWED_SERVICEREGISTRY = set(["services", "has_service", "call"])
-ALLOWED_TIME = set(
-    ["sleep", "strftime", "strptime", "gmtime", "localtime", "ctime", "time", "mktime"]
-)
-ALLOWED_DATETIME = set(["date", "time", "datetime", "timedelta", "tzinfo"])
-ALLOWED_DT_UTIL = set(
-    [
-        "utcnow",
-        "now",
-        "as_utc",
-        "as_timestamp",
-        "as_local",
-        "utc_from_timestamp",
-        "start_of_local_day",
-        "parse_datetime",
-        "parse_date",
-        "get_age",
-    ]
-)
+ALLOWED_HASS = {"bus", "services", "states"}
+ALLOWED_EVENTBUS = {"fire"}
+ALLOWED_STATEMACHINE = {
+    "entity_ids",
+    "all",
+    "get",
+    "is_state",
+    "is_state_attr",
+    "remove",
+    "set",
+}
+ALLOWED_SERVICEREGISTRY = {"services", "has_service", "call"}
+ALLOWED_TIME = {
+    "sleep",
+    "strftime",
+    "strptime",
+    "gmtime",
+    "localtime",
+    "ctime",
+    "time",
+    "mktime",
+}
+ALLOWED_DATETIME = {"date", "time", "datetime", "timedelta", "tzinfo"}
+ALLOWED_DT_UTIL = {
+    "utcnow",
+    "now",
+    "as_utc",
+    "as_timestamp",
+    "as_local",
+    "utc_from_timestamp",
+    "start_of_local_day",
+    "parse_datetime",
+    "parse_date",
+    "get_age",
+}
 
 
 class ScriptError(HomeAssistantError):
     """When a script error occurs."""
-
-    pass
 
 
 def setup(hass, config):
@@ -123,7 +135,8 @@ def discover_scripts(hass):
 def execute_script(hass, name, data=None):
     """Execute a script."""
     filename = f"{name}.py"
-    with open(hass.config.path(FOLDER, sanitize_filename(filename))) as fil:
+    raise_if_invalid_filename(filename)
+    with open(hass.config.path(FOLDER, filename)) as fil:
         source = fil.read()
     execute(hass, filename, source, data)
 
@@ -169,12 +182,21 @@ def execute(hass, filename, source, data=None):
 
         return getattr(obj, name, default)
 
+    extra_builtins = {
+        "datetime": datetime,
+        "sorted": sorted,
+        "time": TimeWrapper(),
+        "dt_util": dt_util,
+        "min": min,
+        "max": max,
+        "sum": sum,
+        "any": any,
+        "all": all,
+    }
     builtins = safe_builtins.copy()
     builtins.update(utility_builtins)
-    builtins["datetime"] = datetime
-    builtins["sorted"] = sorted
-    builtins["time"] = TimeWrapper()
-    builtins["dt_util"] = dt_util
+    builtins.update(limited_builtins)
+    builtins.update(extra_builtins)
     logger = logging.getLogger(f"{__name__}.{filename}")
     restricted_globals = {
         "__builtins__": builtins,
@@ -205,7 +227,6 @@ class StubPrinter:
 
     def __init__(self, _getattr_):
         """Initialize our printer."""
-        pass
 
     def _call_print(self, *objects, **kwargs):
         """Print text."""

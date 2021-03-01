@@ -3,7 +3,14 @@
 It shows list of users if access from trusted network.
 Abort login flow if not access from trusted network.
 """
-from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_network
+from ipaddress import (
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+    ip_address,
+    ip_network,
+)
 from typing import Any, Dict, List, Optional, Union, cast
 
 import voluptuous as vol
@@ -13,7 +20,8 @@ from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
 
 from . import AUTH_PROVIDER_SCHEMA, AUTH_PROVIDERS, AuthProvider, LoginFlow
-from ..models import Credentials, UserMeta
+from .. import InvalidAuthError
+from ..models import Credentials, RefreshToken, UserMeta
 
 IPAddress = Union[IPv4Address, IPv6Address]
 IPNetwork = Union[IPv4Network, IPv6Network]
@@ -44,10 +52,6 @@ CONFIG_SCHEMA = AUTH_PROVIDER_SCHEMA.extend(
     },
     extra=vol.PREVENT_EXTRA,
 )
-
-
-class InvalidAuthError(HomeAssistantError):
-    """Raised when try to access from untrusted networks."""
 
 
 class InvalidUserError(HomeAssistantError):
@@ -163,6 +167,17 @@ class TrustedNetworksAuthProvider(AuthProvider):
         ):
             raise InvalidAuthError("Not in trusted_networks")
 
+    @callback
+    def async_validate_refresh_token(
+        self, refresh_token: RefreshToken, remote_ip: Optional[str] = None
+    ) -> None:
+        """Verify a refresh token is still valid."""
+        if remote_ip is None:
+            raise InvalidAuthError(
+                "Unknown remote ip can't be used for trusted network provider."
+            )
+        self.async_validate_access(ip_address(remote_ip))
+
 
 class TrustedNetworksLoginFlow(LoginFlow):
     """Handler for the login flow."""
@@ -190,7 +205,7 @@ class TrustedNetworksLoginFlow(LoginFlow):
             ).async_validate_access(self._ip_address)
 
         except InvalidAuthError:
-            return self.async_abort(reason="not_whitelisted")
+            return self.async_abort(reason="not_allowed")
 
         if user_input is not None:
             return await self.async_finish(user_input)

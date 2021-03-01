@@ -1,4 +1,6 @@
 """Auth providers for Home Assistant."""
+from __future__ import annotations
+
 import importlib
 import logging
 import types
@@ -16,7 +18,7 @@ from homeassistant.util.decorator import Registry
 
 from ..auth_store import AuthStore
 from ..const import MFA_SESSION_EXPIRATION
-from ..models import Credentials, User, UserMeta
+from ..models import Credentials, RefreshToken, User, UserMeta
 
 _LOGGER = logging.getLogger(__name__)
 DATA_REQS = "auth_prov_reqs_processed"
@@ -92,7 +94,7 @@ class AuthProvider:
 
     # Implement by extending class
 
-    async def async_login_flow(self, context: Optional[Dict]) -> "LoginFlow":
+    async def async_login_flow(self, context: Optional[Dict]) -> LoginFlow:
         """Return the data flow for logging in with auth provider.
 
         Auth provider should extend LoginFlow and return an instance.
@@ -116,7 +118,16 @@ class AuthProvider:
 
     async def async_initialize(self) -> None:
         """Initialize the auth provider."""
-        pass
+
+    @callback
+    def async_validate_refresh_token(
+        self, refresh_token: RefreshToken, remote_ip: Optional[str] = None
+    ) -> None:
+        """Verify a refresh token is still valid.
+
+        Optional hook for an auth provider to verify validity of a refresh token.
+        Should raise InvalidAuthError on errors.
+        """
 
 
 async def auth_provider_from_config(
@@ -147,7 +158,9 @@ async def load_auth_provider_module(
         module = importlib.import_module(f"homeassistant.auth.providers.{provider}")
     except ImportError as err:
         _LOGGER.error("Unable to load auth provider %s: %s", provider, err)
-        raise HomeAssistantError(f"Unable to load auth provider {provider}: {err}")
+        raise HomeAssistantError(
+            f"Unable to load auth provider {provider}: {err}"
+        ) from err
 
     if hass.config.skip_pip or not hasattr(module, "REQUIREMENTS"):
         return module
@@ -176,11 +189,12 @@ class LoginFlow(data_entry_flow.FlowHandler):
         """Initialize the login flow."""
         self._auth_provider = auth_provider
         self._auth_module_id: Optional[str] = None
-        self._auth_manager = auth_provider.hass.auth  # type: ignore
+        self._auth_manager = auth_provider.hass.auth
         self.available_mfa_modules: Dict[str, str] = {}
         self.created_at = dt_util.utcnow()
         self.invalid_mfa_times = 0
         self.user: Optional[User] = None
+        self.credential: Optional[Credentials] = None
 
     async def async_step_init(
         self, user_input: Optional[Dict[str, str]] = None
@@ -206,7 +220,7 @@ class LoginFlow(data_entry_flow.FlowHandler):
             errors["base"] = "invalid_auth_module"
 
         if len(self.available_mfa_modules) == 1:
-            self._auth_module_id = list(self.available_mfa_modules.keys())[0]
+            self._auth_module_id = list(self.available_mfa_modules)[0]
             return await self.async_step_mfa()
 
         return self.async_show_form(
@@ -221,10 +235,12 @@ class LoginFlow(data_entry_flow.FlowHandler):
         self, user_input: Optional[Dict[str, str]] = None
     ) -> Dict[str, Any]:
         """Handle the step of mfa validation."""
+        assert self.credential
         assert self.user
 
         errors = {}
 
+        assert self._auth_module_id is not None
         auth_module = self._auth_manager.get_auth_mfa_module(self._auth_module_id)
         if auth_module is None:
             # Given an invalid input to async_step_select_mfa_module
@@ -235,7 +251,9 @@ class LoginFlow(data_entry_flow.FlowHandler):
             auth_module, "async_initialize_login_mfa_step"
         ):
             try:
-                await auth_module.async_initialize_login_mfa_step(self.user.id)
+                await auth_module.async_initialize_login_mfa_step(  # type: ignore
+                    self.user.id
+                )
             except HomeAssistantError:
                 _LOGGER.exception("Error initializing MFA step")
                 return self.async_abort(reason="unknown_error")
@@ -253,7 +271,7 @@ class LoginFlow(data_entry_flow.FlowHandler):
                     return self.async_abort(reason="too_many_retry")
 
             if not errors:
-                return await self.async_finish(self.user)
+                return await self.async_finish(self.credential)
 
         description_placeholders: Dict[str, Optional[str]] = {
             "mfa_module_name": auth_module.name,

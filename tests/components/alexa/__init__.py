@@ -2,7 +2,7 @@
 from uuid import uuid4
 
 from homeassistant.components.alexa import config, smart_home
-from homeassistant.core import Context
+from homeassistant.core import Context, callback
 
 from tests.common import async_mock_service
 
@@ -19,6 +19,7 @@ class MockConfig(config.AbstractConfig):
         "binary_sensor.test_contact_forced": {"display_categories": "CONTACT_SENSOR"},
         "binary_sensor.test_motion_forced": {"display_categories": "MOTION_SENSOR"},
         "binary_sensor.test_motion_camera_event": {"display_categories": "CAMERA"},
+        "camera.test": {"display_categories": "CAMERA"},
     }
 
     @property
@@ -36,6 +37,11 @@ class MockConfig(config.AbstractConfig):
         """Return config locale."""
         return TEST_LOCALE
 
+    @callback
+    def user_identifier(self):
+        """Return an identifier for the user that represents this config."""
+        return "mock-user-id"
+
     def should_expose(self, entity_id):
         """If an entity should be exposed."""
         return True
@@ -46,7 +52,6 @@ class MockConfig(config.AbstractConfig):
 
     async def async_accept_grant(self, code):
         """Accept a grant."""
-        pass
 
 
 DEFAULT_CONFIG = MockConfig(None)
@@ -204,4 +209,4 @@ class ReportedProperties:
                 assert prop["value"] == value
                 return prop
 
-        assert False, "property %s:%s not in %r" % (namespace, name, self.properties)
+        assert False, f"property {namespace}:{name} not in {self.properties!r}"

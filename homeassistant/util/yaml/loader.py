@@ -4,25 +4,14 @@ import fnmatch
 import logging
 import os
 import sys
-from typing import Dict, Iterator, List, TypeVar, Union, overload
+from typing import Dict, Iterator, List, TextIO, TypeVar, Union, overload
 
 import yaml
 
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import _SECRET_NAMESPACE, SECRET_YAML
-from .objects import NodeListClass, NodeStrClass
-
-try:
-    import keyring
-except ImportError:
-    keyring = None
-
-try:
-    import credstash
-except ImportError:
-    credstash = None
-
+from .const import SECRET_YAML
+from .objects import Input, NodeListClass, NodeStrClass
 
 # mypy: allow-untyped-calls, no-warn-return-any
 
@@ -41,7 +30,6 @@ def clear_secret_cache() -> None:
     __SECRET_CACHE.clear()
 
 
-# pylint: disable=too-many-ancestors
 class SafeLineLoader(yaml.SafeLoader):
     """Loader class that keeps track of line numbers."""
 
@@ -57,15 +45,21 @@ def load_yaml(fname: str) -> JSON_TYPE:
     """Load a YAML file."""
     try:
         with open(fname, encoding="utf-8") as conf_file:
-            # If configuration file is empty YAML returns None
-            # We convert that to an empty dict
-            return yaml.load(conf_file, Loader=SafeLineLoader) or OrderedDict()
-    except yaml.YAMLError as exc:
-        _LOGGER.error(str(exc))
-        raise HomeAssistantError(exc)
+            return parse_yaml(conf_file)
     except UnicodeDecodeError as exc:
         _LOGGER.error("Unable to read file %s: %s", fname, exc)
-        raise HomeAssistantError(exc)
+        raise HomeAssistantError(exc) from exc
+
+
+def parse_yaml(content: Union[str, TextIO]) -> JSON_TYPE:
+    """Load a YAML file."""
+    try:
+        # If configuration file is empty YAML returns None
+        # We convert that to an empty dict
+        return yaml.load(content, Loader=SafeLineLoader) or OrderedDict()
+    except yaml.YAMLError as exc:
+        _LOGGER.error(str(exc))
+        raise HomeAssistantError(exc) from exc
 
 
 @overload
@@ -89,12 +83,7 @@ def _add_reference(
     ...
 
 
-# pylint: enable=pointless-statement
-
-
-def _add_reference(  # type: ignore
-    obj, loader: SafeLineLoader, node: yaml.nodes.Node
-):
+def _add_reference(obj, loader: SafeLineLoader, node: yaml.nodes.Node):  # type: ignore
     """Add file reference information to an object."""
     if isinstance(obj, list):
         obj = NodeListClass(obj)
@@ -115,8 +104,10 @@ def _include_yaml(loader: SafeLineLoader, node: yaml.nodes.Node) -> JSON_TYPE:
     fname = os.path.join(os.path.dirname(loader.name), node.value)
     try:
         return _add_reference(load_yaml(fname), loader, node)
-    except FileNotFoundError:
-        raise HomeAssistantError(f"{node.start_mark}: Unable to read file {fname}.")
+    except FileNotFoundError as exc:
+        raise HomeAssistantError(
+            f"{node.start_mark}: Unable to read file {fname}."
+        ) from exc
 
 
 def _is_file_valid(name: str) -> bool:
@@ -201,17 +192,17 @@ def _ordered_dict(loader: SafeLineLoader, node: yaml.nodes.MappingNode) -> Order
 
         try:
             hash(key)
-        except TypeError:
+        except TypeError as exc:
             fname = getattr(loader.stream, "name", "")
             raise yaml.MarkedYAMLError(
                 context=f'invalid key: "{key}"',
                 context_mark=yaml.Mark(fname, 0, line, -1, None, None),
-            )
+            ) from exc
 
         if key in seen:
             fname = getattr(loader.stream, "name", "")
             _LOGGER.warning(
-                'YAML file %s contains duplicate key "%s". ' "Check lines %d and %d.",
+                'YAML file %s contains duplicate key "%s". Check lines %d and %d',
                 fname,
                 key,
                 seen[key],
@@ -237,7 +228,7 @@ def _env_var_yaml(loader: SafeLineLoader, node: yaml.nodes.Node) -> str:
         return os.getenv(args[0], " ".join(args[1:]))
     if args[0] in os.environ:
         return os.environ[args[0]]
-    _LOGGER.error("Environment variable %s not defined.", node.value)
+    _LOGGER.error("Environment variable %s not defined", node.value)
     raise HomeAssistantError(node.value)
 
 
@@ -270,6 +261,11 @@ def _load_secret_yaml(secret_path: str) -> JSON_TYPE:
 
 def secret_yaml(loader: SafeLineLoader, node: yaml.nodes.Node) -> JSON_TYPE:
     """Load secrets and embed it into the configuration YAML."""
+    if os.path.basename(loader.name) == SECRET_YAML:
+        _LOGGER.error("secrets.yaml: attempt to load secret from within secrets file")
+        raise HomeAssistantError(
+            "secrets.yaml: attempt to load secret from within secrets file"
+        )
     secret_path = os.path.dirname(loader.name)
     while True:
         secrets = _load_secret_yaml(secret_path)
@@ -289,28 +285,6 @@ def secret_yaml(loader: SafeLineLoader, node: yaml.nodes.Node) -> JSON_TYPE:
         if not os.path.exists(secret_path) or len(secret_path) < 5:
             break  # Somehow we got past the .homeassistant config folder
 
-    if keyring:
-        # do some keyring stuff
-        pwd = keyring.get_password(_SECRET_NAMESPACE, node.value)
-        if pwd:
-            _LOGGER.debug("Secret %s retrieved from keyring", node.value)
-            return pwd
-
-    global credstash  # pylint: disable=invalid-name
-
-    if credstash:
-        # pylint: disable=no-member
-        try:
-            pwd = credstash.getSecret(node.value, table=_SECRET_NAMESPACE)
-            if pwd:
-                _LOGGER.debug("Secret %s retrieved from credstash", node.value)
-                return pwd
-        except credstash.ItemNotFound:
-            pass
-        except Exception:  # pylint: disable=broad-except
-            # Catch if package installed and no config
-            credstash = None
-
     raise HomeAssistantError(f"Secret {node.value} not defined")
 
 
@@ -329,3 +303,4 @@ yaml.SafeLoader.add_constructor("!include_dir_named", _include_dir_named_yaml)
 yaml.SafeLoader.add_constructor(
     "!include_dir_merge_named", _include_dir_merge_named_yaml
 )
+yaml.SafeLoader.add_constructor("!input", Input.from_node)

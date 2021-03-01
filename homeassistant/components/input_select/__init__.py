@@ -1,4 +1,6 @@
 """Support to select an option from a list."""
+from __future__ import annotations
+
 import logging
 import typing
 
@@ -23,17 +25,19 @@ from homeassistant.helpers.typing import ConfigType, HomeAssistantType, ServiceC
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "input_select"
-ENTITY_ID_FORMAT = DOMAIN + ".{}"
 
 CONF_INITIAL = "initial"
 CONF_OPTIONS = "options"
 
 ATTR_OPTION = "option"
 ATTR_OPTIONS = "options"
+ATTR_CYCLE = "cycle"
 
 SERVICE_SELECT_OPTION = "select_option"
 SERVICE_SELECT_NEXT = "select_next"
 SERVICE_SELECT_PREVIOUS = "select_previous"
+SERVICE_SELECT_FIRST = "select_first"
+SERVICE_SELECT_LAST = "select_last"
 SERVICE_SET_OPTIONS = "set_options"
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
@@ -58,9 +62,7 @@ def _cv_input_select(cfg):
     initial = cfg.get(CONF_INITIAL)
     if initial is not None and initial not in options:
         raise vol.Invalid(
-            'initial state "{}" is not part of the options: {}'.format(
-                initial, ",".join(options)
-            )
+            f"initial state {initial} is not part of the options: {','.join(options)}"
         )
     return cfg
 
@@ -94,8 +96,8 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
     yaml_collection = collection.YamlCollection(
         logging.getLogger(f"{__name__}.yaml_collection"), id_manager
     )
-    collection.attach_entity_component_collection(
-        component, yaml_collection, InputSelect.from_yaml
+    collection.sync_entity_lifecycle(
+        hass, DOMAIN, DOMAIN, component, yaml_collection, InputSelect.from_yaml
     )
 
     storage_collection = InputSelectStorageCollection(
@@ -103,8 +105,8 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
         logging.getLogger(f"{__name__}.storage_collection"),
         id_manager,
     )
-    collection.attach_entity_component_collection(
-        component, storage_collection, InputSelect
+    collection.sync_entity_lifecycle(
+        hass, DOMAIN, DOMAIN, component, storage_collection, InputSelect
     )
 
     await yaml_collection.async_load(
@@ -115,9 +117,6 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
     collection.StorageCollectionWebsocket(
         storage_collection, DOMAIN, DOMAIN, CREATE_FIELDS, UPDATE_FIELDS
     ).async_setup(hass)
-
-    collection.attach_entity_registry_cleaner(hass, DOMAIN, DOMAIN, yaml_collection)
-    collection.attach_entity_registry_cleaner(hass, DOMAIN, DOMAIN, storage_collection)
 
     async def reload_service_handler(service_call: ServiceCallType) -> None:
         """Reload yaml entities."""
@@ -143,11 +142,27 @@ async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
     )
 
     component.async_register_entity_service(
-        SERVICE_SELECT_NEXT, {}, lambda entity, call: entity.async_offset_index(1)
+        SERVICE_SELECT_NEXT,
+        {vol.Optional(ATTR_CYCLE, default=True): bool},
+        "async_next",
     )
 
     component.async_register_entity_service(
-        SERVICE_SELECT_PREVIOUS, {}, lambda entity, call: entity.async_offset_index(-1)
+        SERVICE_SELECT_PREVIOUS,
+        {vol.Optional(ATTR_CYCLE, default=True): bool},
+        "async_previous",
+    )
+
+    component.async_register_entity_service(
+        SERVICE_SELECT_FIRST,
+        {},
+        callback(lambda entity, call: entity.async_select_index(0)),
+    )
+
+    component.async_register_entity_service(
+        SERVICE_SELECT_LAST,
+        {},
+        callback(lambda entity, call: entity.async_select_index(-1)),
     )
 
     component.async_register_entity_service(
@@ -194,10 +209,10 @@ class InputSelect(RestoreEntity):
         self._current_option = config.get(CONF_INITIAL)
 
     @classmethod
-    def from_yaml(cls, config: typing.Dict) -> "InputSelect":
+    def from_yaml(cls, config: typing.Dict) -> InputSelect:
         """Return entity instance initialized from yaml storage."""
         input_select = cls(config)
-        input_select.entity_id = ENTITY_ID_FORMAT.format(config[CONF_ID])
+        input_select.entity_id = f"{DOMAIN}.{config[CONF_ID]}"
         input_select.editable = False
         return input_select
 
@@ -248,7 +263,8 @@ class InputSelect(RestoreEntity):
         """Return unique id for the entity."""
         return self._config[CONF_ID]
 
-    async def async_select_option(self, option):
+    @callback
+    def async_select_option(self, option):
         """Select new option."""
         if option not in self._options:
             _LOGGER.warning(
@@ -260,14 +276,40 @@ class InputSelect(RestoreEntity):
         self._current_option = option
         self.async_write_ha_state()
 
-    async def async_offset_index(self, offset):
-        """Offset current index."""
-        current_index = self._options.index(self._current_option)
-        new_index = (current_index + offset) % len(self._options)
+    @callback
+    def async_select_index(self, idx):
+        """Select new option by index."""
+        new_index = idx % len(self._options)
         self._current_option = self._options[new_index]
         self.async_write_ha_state()
 
-    async def async_set_options(self, options):
+    @callback
+    def async_offset_index(self, offset, cycle):
+        """Offset current index."""
+        current_index = self._options.index(self._current_option)
+        new_index = current_index + offset
+        if cycle:
+            new_index = new_index % len(self._options)
+        else:
+            if new_index < 0:
+                new_index = 0
+            elif new_index >= len(self._options):
+                new_index = len(self._options) - 1
+        self._current_option = self._options[new_index]
+        self.async_write_ha_state()
+
+    @callback
+    def async_next(self, cycle):
+        """Select next option."""
+        self.async_offset_index(1, cycle)
+
+    @callback
+    def async_previous(self, cycle):
+        """Select previous option."""
+        self.async_offset_index(-1, cycle)
+
+    @callback
+    def async_set_options(self, options):
         """Set options."""
         self._current_option = options[0]
         self._config[CONF_OPTIONS] = options

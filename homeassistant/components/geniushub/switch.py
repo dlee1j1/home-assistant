@@ -1,12 +1,28 @@
 """Support for Genius Hub switch/outlet devices."""
-from homeassistant.components.switch import DEVICE_CLASS_OUTLET, SwitchDevice
+from datetime import timedelta
+
+import voluptuous as vol
+
+from homeassistant.components.switch import DEVICE_CLASS_OUTLET, SwitchEntity
+from homeassistant.const import ATTR_ENTITY_ID
+from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.typing import ConfigType, HomeAssistantType
 
-from . import DOMAIN, GeniusZone
-
-ATTR_DURATION = "duration"
+from . import ATTR_DURATION, DOMAIN, GeniusZone
 
 GH_ON_OFF_ZONE = "on / off"
+
+SVC_SET_SWITCH_OVERRIDE = "set_switch_override"
+
+SET_SWITCH_OVERRIDE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Optional(ATTR_DURATION): vol.All(
+            cv.time_period,
+            vol.Range(min=timedelta(minutes=5), max=timedelta(days=1)),
+        ),
+    }
+)
 
 
 async def async_setup_platform(
@@ -26,8 +42,17 @@ async def async_setup_platform(
         ]
     )
 
+    # Register custom services
+    platform = entity_platform.current_platform.get()
 
-class GeniusSwitch(GeniusZone, SwitchDevice):
+    platform.async_register_entity_service(
+        SVC_SET_SWITCH_OVERRIDE,
+        SET_SWITCH_OVERRIDE_SCHEMA,
+        "async_turn_on",
+    )
+
+
+class GeniusSwitch(GeniusZone, SwitchEntity):
     """Representation of a Genius Hub switch."""
 
     @property

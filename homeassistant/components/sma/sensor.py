@@ -1,5 +1,4 @@
 """SMA Solar Webconnect interface."""
-import asyncio
 from datetime import timedelta
 import logging
 
@@ -12,10 +11,12 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_PATH,
     CONF_SCAN_INTERVAL,
+    CONF_SENSORS,
     CONF_SSL,
     CONF_VERIFY_SSL,
     EVENT_HOMEASSISTANT_STOP,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
@@ -27,7 +28,6 @@ CONF_CUSTOM = "custom"
 CONF_FACTOR = "factor"
 CONF_GROUP = "group"
 CONF_KEY = "key"
-CONF_SENSORS = "sensors"
 CONF_UNIT = "unit"
 
 GROUPS = ["user", "installer"]
@@ -40,7 +40,7 @@ def _check_sensor_schema(conf):
     except (ImportError, AttributeError):
         return conf
 
-    customs = list(conf[CONF_CUSTOM].keys())
+    customs = list(conf[CONF_CUSTOM])
 
     for sensor in conf[CONF_SENSORS]:
         if sensor in customs:
@@ -86,7 +86,6 @@ PLATFORM_SCHEMA = vol.All(
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up SMA WebConnect sensor."""
-
     # Check config again during load - dependency available
     config = _check_sensor_schema(config)
 
@@ -120,7 +119,7 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     if isinstance(config_sensors, list):
         if not config_sensors:  # Use all sensors by default
             config_sensors = [s.name for s in sensor_def]
-        used_sensors = list(set(config_sensors + list(config[CONF_CUSTOM].keys())))
+        used_sensors = list(set(config_sensors + list(config[CONF_CUSTOM])))
         for sensor in used_sensors:
             hass_sensors.append(SMAsensor(sensor_def[sensor], []))
 
@@ -131,7 +130,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     session = async_get_clientsession(hass, verify_ssl=config[CONF_VERIFY_SSL])
     grp = config[CONF_GROUP]
 
-    url = "http{}://{}".format("s" if config[CONF_SSL] else "", config[CONF_HOST])
+    protocol = "https" if config[CONF_SSL] else "http"
+    url = f"{protocol}://{config[CONF_HOST]}"
 
     sma = pysma.SMA(session, url, config[CONF_PASSWORD], group=grp)
 
@@ -162,13 +162,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
             return
         backoff_step = 0
 
-        tasks = []
         for sensor in hass_sensors:
-            task = sensor.async_update_values()
-            if task:
-                tasks.append(task)
-        if tasks:
-            await asyncio.wait(tasks)
+            sensor.async_update_values()
 
     interval = config.get(CONF_SCAN_INTERVAL) or timedelta(seconds=5)
     async_track_time_interval(hass, async_sma, interval)
@@ -210,6 +205,7 @@ class SMAsensor(Entity):
         """SMA sensors are updated & don't poll."""
         return False
 
+    @callback
     def async_update_values(self):
         """Update this sensor."""
         update = False
@@ -224,7 +220,8 @@ class SMAsensor(Entity):
             update = True
             self._state = self._sensor.value
 
-        return self.async_update_ha_state() if update else None
+        if update:
+            self.async_write_ha_state()
 
     @property
     def unique_id(self):

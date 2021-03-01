@@ -5,15 +5,9 @@ The only mocking required is of the underlying SmartThings API object so
 real HTTP calls are not initiated during testing.
 """
 from homeassistant.components.scene import DOMAIN as SCENE_DOMAIN
-from homeassistant.components.smartthings import scene as scene_platform
-from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON
+from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON, STATE_UNAVAILABLE
 
 from .conftest import setup_platform
-
-
-async def test_async_setup_platform():
-    """Test setup platform does nothing (it uses config entries)."""
-    await scene_platform.async_setup_platform(None, None, None)
 
 
 async def test_entity_and_device_attributes(hass, scene):
@@ -52,4 +46,4 @@ async def test_unload_config_entry(hass, scene):
     # Act
     await hass.config_entries.async_forward_entry_unload(config_entry, SCENE_DOMAIN)
     # Assert
-    assert not hass.states.get("scene.test_scene")
+    assert hass.states.get("scene.test_scene").state == STATE_UNAVAILABLE

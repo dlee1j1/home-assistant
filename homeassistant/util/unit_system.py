@@ -1,8 +1,6 @@
 """Unit system helper class and methods."""
-
-import logging
 from numbers import Number
-from typing import Optional
+from typing import Dict, Optional
 
 from homeassistant.const import (
     CONF_UNIT_SYSTEM_IMPERIAL,
@@ -33,7 +31,7 @@ from homeassistant.util import (
     volume as volume_util,
 )
 
-_LOGGER = logging.getLogger(__name__)
+# mypy: disallow-any-generics
 
 LENGTH_UNITS = distance_util.VALID_UNITS
 
@@ -109,10 +107,7 @@ class UnitSystem:
         if not isinstance(temperature, Number):
             raise TypeError(f"{temperature!s} is not a numeric value.")
 
-        # type ignore: https://github.com/python/mypy/issues/7207
-        return temperature_util.convert(  # type: ignore
-            temperature, from_unit, self.temperature_unit
-        )
+        return temperature_util.convert(temperature, from_unit, self.temperature_unit)
 
     def length(self, length: Optional[float], from_unit: str) -> float:
         """Convert the given length to this unit system."""
@@ -140,11 +135,9 @@ class UnitSystem:
             raise TypeError(f"{volume!s} is not a numeric value.")
 
         # type ignore: https://github.com/python/mypy/issues/7207
-        return volume_util.convert(  # type: ignore
-            volume, from_unit, self.volume_unit
-        )
+        return volume_util.convert(volume, from_unit, self.volume_unit)  # type: ignore
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> Dict[str, str]:
         """Convert the unit system to a dictionary."""
         return {
             LENGTH: self.length_unit,

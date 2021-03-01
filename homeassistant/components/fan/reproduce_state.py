@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from types import MappingProxyType
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -17,10 +17,14 @@ from homeassistant.helpers.typing import HomeAssistantType
 from . import (
     ATTR_DIRECTION,
     ATTR_OSCILLATING,
+    ATTR_PERCENTAGE,
+    ATTR_PRESET_MODE,
     ATTR_SPEED,
     DOMAIN,
     SERVICE_OSCILLATE,
     SERVICE_SET_DIRECTION,
+    SERVICE_SET_PERCENTAGE,
+    SERVICE_SET_PRESET_MODE,
     SERVICE_SET_SPEED,
 )
 
@@ -31,11 +35,17 @@ ATTRIBUTES = {  # attribute: service
     ATTR_DIRECTION: SERVICE_SET_DIRECTION,
     ATTR_OSCILLATING: SERVICE_OSCILLATE,
     ATTR_SPEED: SERVICE_SET_SPEED,
+    ATTR_PERCENTAGE: SERVICE_SET_PERCENTAGE,
+    ATTR_PRESET_MODE: SERVICE_SET_PRESET_MODE,
 }
 
 
 async def _async_reproduce_state(
-    hass: HomeAssistantType, state: State, context: Optional[Context] = None
+    hass: HomeAssistantType,
+    state: State,
+    *,
+    context: Optional[Context] = None,
+    reproduce_options: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Reproduce a single state."""
     cur_state = hass.states.get(state.entity_id)
@@ -85,11 +95,20 @@ async def _async_reproduce_state(
 
 
 async def async_reproduce_states(
-    hass: HomeAssistantType, states: Iterable[State], context: Optional[Context] = None
+    hass: HomeAssistantType,
+    states: Iterable[State],
+    *,
+    context: Optional[Context] = None,
+    reproduce_options: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Reproduce Fan states."""
     await asyncio.gather(
-        *(_async_reproduce_state(hass, state, context) for state in states)
+        *(
+            _async_reproduce_state(
+                hass, state, context=context, reproduce_options=reproduce_options
+            )
+            for state in states
+        )
     )
 
 

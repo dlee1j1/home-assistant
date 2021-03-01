@@ -7,8 +7,13 @@ import voluptuous as vol
 from homeassistant.const import (
     CONF_NAME,
     CONF_PORT,
+    CONF_SENSOR_TYPE,
+    CONF_SENSORS,
     CONF_TEMPERATURE_UNIT,
     EVENT_HOMEASSISTANT_STOP,
+    TIME_HOURS,
+    TIME_MINUTES,
+    TIME_SECONDS,
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.discovery import async_load_platform
@@ -24,8 +29,6 @@ CONF_NET_METERING = "net_metering"
 CONF_NUMBER = "number"
 CONF_PULSE_COUNTERS = "pulse_counters"
 CONF_SERIAL_NUMBER = "serial_number"
-CONF_SENSORS = "sensors"
-CONF_SENSOR_TYPE = "sensor_type"
 CONF_TEMPERATURE_SENSORS = "temperature_sensors"
 CONF_TIME_UNIT = "time_unit"
 CONF_VOLTAGE_SENSORS = "voltage"
@@ -39,10 +42,6 @@ SENSOR_TYPE_TEMPERATURE = "temperature_sensor"
 SENSOR_TYPE_VOLTAGE = "voltage_sensor"
 
 TEMPERATURE_UNIT_CELSIUS = "C"
-
-TIME_UNIT_SECOND = "s"
-TIME_UNIT_MINUTE = "min"
-TIME_UNIT_HOUR = "h"
 
 TEMPERATURE_SENSOR_SCHEMA = vol.Schema(
     {vol.Required(CONF_NUMBER): vol.Range(1, 8), vol.Required(CONF_NAME): cv.string}
@@ -69,8 +68,8 @@ PULSE_COUNTER_SCHEMA = vol.Schema(
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_COUNTED_QUANTITY): cv.string,
         vol.Optional(CONF_COUNTED_QUANTITY_PER_PULSE, default=1.0): vol.Coerce(float),
-        vol.Optional(CONF_TIME_UNIT, default=TIME_UNIT_SECOND): vol.Any(
-            TIME_UNIT_SECOND, TIME_UNIT_MINUTE, TIME_UNIT_HOUR
+        vol.Optional(CONF_TIME_UNIT, default=TIME_SECONDS): vol.Any(
+            TIME_SECONDS, TIME_MINUTES, TIME_HOURS
         ),
     }
 )
@@ -120,7 +119,6 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: COMPONENT_SCHEMA}, extra=vol.ALLOW_EXTRA)
 
 async def async_setup(hass, config):
     """Set up the GreenEye Monitor component."""
-
     monitors = Monitors()
     hass.data[DATA_GREENEYE_MONITOR] = monitors
 
