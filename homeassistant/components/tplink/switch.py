@@ -79,6 +79,7 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
     def update_state_from_device(self):
         """Update internal state from the device object the entity points to."""
         self._is_on = self.smartplug.is_on
+        self._is_available = True
 
         if self.smartplug.has_emeter:
             emeter_readings = self.smartplug.emeter_realtime
@@ -107,7 +108,6 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
                 _LOGGER.debug("Polling device: %s", self.name)
                 await self.smartplug.update()
             self.update_state_from_device()
-            self._is_available = True
             self._last_updated = datetime.now
 
         except (SmartDeviceException, OSError) as ex:

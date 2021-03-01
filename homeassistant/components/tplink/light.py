@@ -1,9 +1,9 @@
 """Support for TPLink lights."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 
 from kasa import SmartBulb, SmartDeviceException
-from datetime import timedelta, datetime
+
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP,
@@ -13,7 +13,6 @@ from homeassistant.components.light import (
     SUPPORT_COLOR_TEMP,
     LightEntity,
 )
-import homeassistant.helpers.device_registry as dr
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.util.color import (
     color_temperature_kelvin_to_mired as kelvin_to_mired,
@@ -21,7 +20,6 @@ from homeassistant.util.color import (
 )
 
 from .common import TPLinkCommon
-
 
 PARALLEL_UPDATES = 0
 SCAN_INTERVAL = timedelta(seconds=5)
@@ -35,11 +33,13 @@ ATTR_MONTHLY_ENERGY_KWH = "monthly_energy_kwh"
 
 __platform_async_add_entities__ = None
 
+
 async def async_setup_entry(hass: HomeAssistantType, config_entry, async_add_entities):
-    """Only grab async_add_entities method here. The setup is really done in TPLinkUpdater class"""
-    global __platform_async_add_entities__
+    """Only grab async_add_entities method here. The setup is really done in TPLinkUpdater class."""
+    global __platform_async_add_entities__  # pylint: disable=global-statement
     __platform_async_add_entities__ = async_add_entities
     return True
+
 
 def brightness_to_percentage(byt):
     """Convert brightness from absolute 0..255 to percentage."""
@@ -51,12 +51,13 @@ def brightness_from_percentage(percent):
     return round((percent * 255.0) / 100.0)
 
 
-class TPLinkSmartBulb(TPLinkCommon,LightEntity):
+class TPLinkSmartBulb(TPLinkCommon, LightEntity):
     """Representation of a TPLink Smart Bulb."""
 
     def __init__(self, smartbulb: SmartBulb) -> None:
         """Initialize the bulb."""
-        super.__init__(smartbulb)
+        super().__init__(smartbulb)
+        self._is_available = False
         self._min_mireds = None
         self._max_mireds = None
         self._supported_features = None
@@ -64,6 +65,7 @@ class TPLinkSmartBulb(TPLinkCommon,LightEntity):
 
     @property
     def smartbulb(self):
+        """Return the device. Reduces changes from previous calls."""
         return self.device
 
     @property
@@ -92,11 +94,11 @@ class TPLinkSmartBulb(TPLinkCommon,LightEntity):
         transition = kwargs.get("transition")
         if transition is not None:
             transition = int(transition * 1_000)
-            _LOGGER.debug("Got transition: %s" % transition)
+            _LOGGER.debug("Got transition: %s", transition)
 
         if ATTR_BRIGHTNESS in kwargs:
             brightness = brightness_to_percentage(int(kwargs[ATTR_BRIGHTNESS]))
-            _LOGGER.debug("Got brightness: %s" % brightness)
+            _LOGGER.debug("Got brightness: %s", brightness)
 
         if ATTR_COLOR_TEMP in kwargs:
             color_temp = int(mired_to_kelvin(int(kwargs[ATTR_COLOR_TEMP])))
@@ -170,15 +172,16 @@ class TPLinkSmartBulb(TPLinkCommon,LightEntity):
         return self.smartbulb.is_on
 
     def update_state_from_device(self):
+        """Update light state when tracking device changes."""
         self.update_emeter_state()
         self._supported_features = self.get_light_features()
+        self._is_available = True
 
     async def async_update(self):
         """Update the TP-Link Bulb's state."""
         try:
             await self.smartbulb.update()
             self.update_state_from_device()
-            self._is_available = True
             self._last_updated = datetime.now
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:
