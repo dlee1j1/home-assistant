@@ -108,7 +108,7 @@ class TPLinkSmartPlugSwitch(TPLinkCommon, SwitchEntity):
                 _LOGGER.debug("Polling device: %s", self.name)
                 await self.smartplug.update()
             self.update_state_from_device()
-            self._last_updated = datetime.now
+            self._last_updated = datetime.now()
 
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:

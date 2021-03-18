@@ -182,7 +182,7 @@ class TPLinkSmartBulb(TPLinkCommon, LightEntity):
         try:
             await self.smartbulb.update()
             self.update_state_from_device()
-            self._last_updated = datetime.now
+            self._last_updated = datetime.now()
         except (SmartDeviceException, OSError) as ex:
             if self._is_available:
                 _LOGGER.warning(

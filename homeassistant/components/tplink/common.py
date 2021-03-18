@@ -31,14 +31,14 @@ class TPLinkCommon(Entity):
         This is called both during an explicit update call or from a UDP discovery call.
         """
 
-    def add_self_to_platform(self):
+    def add_self_to_platform(self,update_before_add:bool = False):
         """Add this entity to its platform."""
         async_add_entities = self._platform_async_add_entities
         if (not self._added_to_platform) and (async_add_entities is not None):
             # First time we have an update for this entity
             # so add ourselves to the platform
             self._added_to_platform = True
-            async_add_entities([self])
+            async_add_entities([self],update_before_add)
 
     def update_device(self, device: SmartDevice):
         """Set the tracking device for this entity to be a newly minted device from the discovery call.
@@ -65,7 +65,10 @@ class TPLinkCommon(Entity):
         """
         time_since_last_update = now - self._last_updated
         if time_since_last_update > MIN_TIME_BETWEEN_UPDATES:
-            self.async_schedule_update_ha_state(force_refresh=True)
+            if self.hass is not None:
+                if self.entity_id is not None: self.async_schedule_update_ha_state(force_refresh=True)
+            else:
+                self.add_self_to_platform(update_before_add=True)
 
     @property
     def should_poll(self) -> bool:
