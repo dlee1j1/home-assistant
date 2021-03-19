@@ -57,7 +57,7 @@ class TPLinkCommon(Entity):
             # but that might not have executed yet so we check self.hass instead of self._added_to_platform
             self.async_write_ha_state()
 
-    def check_forced_update(self, now: datetime):
+    async def check_forced_update(self, now: datetime):
         """Check the last time this entity got updated.
 
         If it's more than 5-seconds, we force an update through a direct TCP call
@@ -66,9 +66,7 @@ class TPLinkCommon(Entity):
         time_since_last_update = now - self._last_updated
         if time_since_last_update > MIN_TIME_BETWEEN_UPDATES:
             if self.hass is not None:
-                if self.entity_id is not None: self.async_schedule_update_ha_state(force_refresh=True)
-            else:
-                self.add_self_to_platform(update_before_add=True)
+                self.async_schedule_update_ha_state(force_refresh=True)                    
 
     @property
     def should_poll(self) -> bool:
