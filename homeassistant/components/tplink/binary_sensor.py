@@ -12,6 +12,7 @@ from kasa import (
     SmartLightStrip,
     SmartPlug,
     SmartStrip,
+    SmartDeviceException
 )
 import voluptuous as vol
 
@@ -25,6 +26,7 @@ from .const import (
     DOMAIN,
     MIN_TIME_BETWEEN_DISCOVERS,
     MIN_TIME_BETWEEN_UPDATES,
+    MIN_TIME_BETWEEN_STATIC_PROBES,
     STARTUP_COOLDOWN_TIME,
 )
 from .light import TPLinkSmartBulb
@@ -135,7 +137,8 @@ class TPLinkUpdater(BinarySensorEntity):
         self._entities = static_entities
         self._static_entities = list(static_entities.values())
         self._last_updated = datetime.min
-        self._last_static_check = None
+        self._last_static_add = datetime.min
+        self._last_static_check = datetime.now()
         self._first_discovery_done = False
         self._start_time = datetime.now()
 
@@ -170,6 +173,17 @@ class TPLinkUpdater(BinarySensorEntity):
             )
         )
 
+    async def add_static_entity(self,entity):
+        if entity.hass: return
+        try:
+            device:SmartDevice = entity.device
+            await device.update()
+            await self.update_from_discovery(device)
+        except (SmartDeviceException, OSError) as ex:
+            _LOGGER.warn("Unable to find device at IP %s",device.host)
+
+
+
     async def async_update(self):
         """Kicks off another set of discoveries if it's been a while. Otherwise, it waits for the next tick."""
         time = datetime.now()
@@ -186,15 +200,20 @@ class TPLinkUpdater(BinarySensorEntity):
         if time - self._last_updated > MIN_TIME_BETWEEN_DISCOVERS:
             self.schedule_discovery()
 
-        # check each of the static entries, if they haven't updated through UDP, force a TCP update
-        if self._last_static_check is None:
-            self._last_static_check = time
+        # Go probing for unfound statics only every minute
+        check_unfound_statics = False
+        if time - self._last_static_add > MIN_TIME_BETWEEN_STATIC_PROBES:
+            self._last_static_add = time
+            check_unfound_statics = True
 
+        # check static devices only every 5 seconds     
         if time - self._last_static_check > MIN_TIME_BETWEEN_UPDATES:
-            # check static devices only every 5 seconds
+            self._last_static_check = time
             for entity in self._static_entities:
                 entity.check_forced_update(time)
-            self._last_static_check = time
+                if check_unfound_statics:
+                    await self.add_static_entity(entity)
+
 
     def create_entity_from_discovery(self, device: SmartDevice, is_child=False):
         """Create a device entity from discovery.
